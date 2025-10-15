@@ -1,0 +1,7 @@
+{
+  "queries": [
+    "SELECT * FROM READ_CSV(url => 's3://black-box-fuzzer/fuzz.csv');",
+    "COPY fuzz_csv FROM 's3://black-box-fuzzer/fuzz.csv';",
+    "COPY fuzz_csv FROM 's3://black-box-fuzzer/fuzz.csv' WITH HEADER=TRUE SKIP_BLANK_LINES=TRUE EMPTY_FIELD_AS_NULL=FALSE;"
+  ]
+}
