@@ -1,0 +1,3 @@
+[submodule "third-party/radamsa"]
+	path = third-party/radamsa
+	url = https://gitlab.com/akihe/radamsa.git

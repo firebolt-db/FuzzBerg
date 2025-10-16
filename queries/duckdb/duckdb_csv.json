@@ -1,0 +1,5 @@
+{
+  "queries": [
+    "SELECT * FROM read_csv('/tmp/fuzz.csv');", "SELECT * FROM read_csv('/tmp/fuzz.csv',header = true,delim = '|',allow_quoted_nulls = false);"
+  ]
+}

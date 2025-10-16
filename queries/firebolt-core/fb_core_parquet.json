@@ -1,0 +1,6 @@
+{
+  "queries": [
+    "SELECT * FROM READ_PARQUET(url => 's3://black-box-fuzzer/fuzz.parquet');",
+    "COPY fuzz_parquet FROM 's3://black-box-fuzzer/fuzz.parquet';"
+  ]
+}
