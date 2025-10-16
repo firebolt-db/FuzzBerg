@@ -3,7 +3,7 @@
   FuzzBerg
 </h1>
 <p>
-  A hybrid fuzzer <b>(structured + black-box)</b> for Apache Iceberg, and other file-format database readers 
+  A database fuzzer <b>(structured + black-box)</b> for Apache Iceberg, and other file-format readers 
 </p>
 
 
