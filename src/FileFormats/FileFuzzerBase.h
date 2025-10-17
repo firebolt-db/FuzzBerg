@@ -1,7 +1,7 @@
 /*
 
-  Fuzzberg - a fuzzer for Iceberg and other file-format database readers
-  ----------------------------------------------------------------------
+  Fuzzberg - a fuzzer for Iceberg and other file-format readers
+  --------------------------------------------------------------
 
   Copyright 2025 [Firebolt Analytics, Inc.]. All rights reserved.
 
@@ -47,14 +47,14 @@ namespace fuzzberg {
 
 struct corpus_stat {
   size_t size;
-  char* corpus = nullptr;
+  char *corpus = nullptr;
 };
 
 using query_set = std::vector<std::string>;
 using corpus_buffer = std::vector<corpus_stat>;
 
 class FileFuzzerBase : public HTTPHandler {
- public:
+public:
   FileFuzzerBase() = default;
   ~FileFuzzerBase() = default;
 
@@ -64,26 +64,28 @@ class FileFuzzerBase : public HTTPHandler {
     std::optional<std::string> s3_bucket = std::nullopt;
   } _corpus_info;
 
-  size_t execs = 0;             // number of queries executed
-  size_t crash_input_size = 0;  // size of the input that caused crash
+  size_t execs = 0;            // number of queries executed
+  size_t crash_input_size = 0; // size of the input that caused crash
 
-  corpus_stat load_corpus(const std::filesystem::path& input_corpus_path);
-  void write_crash(char* crash_string, size_t crash_size, std::string& crash_dir);
+  corpus_stat load_corpus(const std::filesystem::path &input_corpus_path);
+  void write_crash(char *crash_string, size_t crash_size,
+                   std::string &crash_dir);
 
   // Radamsa mutation buffer size
   static constexpr size_t RADAMSA_BUFFER_SIZE =
-      1024 * 10;  // 10 KB buffer (we define this inside Database.h too as the crash writing
-                  // function needs it)
+      1024 * 10; // 10 KB buffer (we define this inside Database.h too as the
+                 // crash writing function needs it)
 
- protected:
+protected:
   // Override this in child format-fuzzers
-  virtual int8_t Fuzz(std::vector<std::string>& queries, std::string& db_url,
-                      corpus_buffer& input_corpus, char*& radamsa_buffer, size_t& execs,
-                      CURL* curl) {
+  virtual int8_t Fuzz(std::vector<std::string> &queries, std::string &db_url,
+                      corpus_buffer &input_corpus, char *&radamsa_buffer,
+                      size_t &execs, CURL *curl) {
     return 0;
   }
 
-  void write_radamsa_mutation(char*& buffer, FILE*& mutated_file_ptr, size_t length);
+  void write_radamsa_mutation(char *&buffer, FILE *&mutated_file_ptr,
+                              size_t length);
   uint32_t seed_generator();
 };
-}  // namespace fuzzberg
+} // namespace fuzzberg

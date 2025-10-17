@@ -1,7 +1,7 @@
 /*
 
-  Fuzzberg - a fuzzer for Iceberg and other file-format database readers
-  ----------------------------------------------------------------------
+  Fuzzberg - a fuzzer for Iceberg and other file-format readers
+  --------------------------------------------------------------
 
   Copyright 2025 [Firebolt Analytics, Inc.]. All rights reserved.
 
@@ -27,7 +27,7 @@
 namespace fuzzberg {
 
 class FireboltCore : public DatabaseHandler {
- public:
+public:
   FireboltCore() = default;
   ~FireboltCore() = default;
 
@@ -35,4 +35,4 @@ class FireboltCore : public DatabaseHandler {
   int8_t fuzz() override;
 };
 
-}  // namespace fuzzberg
+} // namespace fuzzberg

@@ -1,7 +1,7 @@
 /*
 
-  Fuzzberg - a fuzzer for Iceberg and other file-format database readers
-  ----------------------------------------------------------------------
+  Fuzzberg - a fuzzer for Iceberg and other file-format readers
+  --------------------------------------------------------------
 
   Copyright 2025 [Firebolt Analytics, Inc.]. All rights reserved.
 
@@ -32,13 +32,14 @@
 
 namespace fuzzberg {
 class HTTPHandler {
- public:
+public:
   HTTPHandler() = default;
   ~HTTPHandler() = default;
 
-  CURLcode curlinit(const std::string& db_url);
-  static size_t resp(char* ptr, size_t size, size_t resp_size, void* userdata);
-  bool send_query(CURL* curl_handle, const std::string& query, const std::string& db_url,
-                  const std::string& auth_token = "");
+  CURLcode curlinit(const std::string &db_url);
+  static size_t resp(char *ptr, size_t size, size_t resp_size, void *userdata);
+  bool send_query(CURL *curl_handle, const std::string &query,
+                  const std::string &db_url,
+                  const std::string &auth_token = "");
 };
-}  // namespace fuzzberg
+} // namespace fuzzberg

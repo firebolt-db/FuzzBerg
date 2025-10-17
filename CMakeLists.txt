@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(fuzzberg
   VERSION 1.0
-  DESCRIPTION "Fuzzberg - a fuzzer for Apache Iceberg and other file-format database readers"
+  DESCRIPTION "Fuzzberg - a fuzzer for Apache Iceberg and other file-format readers"
   HOMEPAGE_URL "https://github.com/firebolt-db/fuzzberg"
   LANGUAGES CXX
 )
