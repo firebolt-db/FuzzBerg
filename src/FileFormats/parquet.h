@@ -1,7 +1,7 @@
 /*
 
-  Fuzzberg - a fuzzer for Iceberg and other file-format database readers
-  ----------------------------------------------------------------------
+  Fuzzberg - a fuzzer for Iceberg and other file-format readers
+  --------------------------------------------------------------
 
   Copyright 2025 [Firebolt Analytics, Inc.]. All rights reserved.
 
@@ -28,12 +28,13 @@
 namespace fuzzberg {
 
 class ParquetFuzzer : public FileFuzzerBase {
- public:
-  ParquetFuzzer(pid_t target_pid, std::string& fuzzer_mutation_path);
+public:
+  ParquetFuzzer(pid_t target_pid, std::string &fuzzer_mutation_path);
   ~ParquetFuzzer() = default;
 
-  FILE* mutated_file_ptr = nullptr;
-  int8_t Fuzz(std::vector<std::string>& queries, std::string& db_url, corpus_buffer& input_corpus,
-              char*& radamsa_buffer, size_t& execs, CURL* curl) override;
+  FILE *mutated_file_ptr = nullptr;
+  int8_t Fuzz(std::vector<std::string> &queries, std::string &db_url,
+              corpus_buffer &input_corpus, char *&radamsa_buffer, size_t &execs,
+              CURL *curl) override;
 };
-}  // namespace fuzzberg
+} // namespace fuzzberg

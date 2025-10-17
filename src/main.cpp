@@ -1,7 +1,7 @@
 /*
 
-  Fuzzberg - a black-box SQL fuzzer for Iceberg and other file readers
-  ----------------------------------------------------------------------
+  Fuzzberg - a fuzzer for Iceberg and other file-format readers 
+  --------------------------------------------------------------
 
   Copyright 2025 [Firebolt Analytics, Inc.]. All rights reserved.
 

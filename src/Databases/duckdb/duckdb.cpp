@@ -1,7 +1,7 @@
 /*
 
-  Fuzzberg - a fuzzer for Iceberg and other file-format database readers
-  ----------------------------------------------------------------------
+  Fuzzberg - a fuzzer for Iceberg and other file-format readers
+  --------------------------------------------------------------
 
   Copyright 2025 [Firebolt Analytics, Inc.]. All rights reserved.
 
@@ -35,14 +35,15 @@ pid_t DuckDB::ForkTarget() {
 
   // Parent
   FileFuzzerBase fuzzer_base;
-  auto init_code = fuzzer_base.curlinit(db_url);  // Test connection to target
+  auto init_code = fuzzer_base.curlinit(db_url); // Test connection to target
   if (init_code != CURLE_OK) {
-    std::cerr << "\nConnection to local server failed, fuzzer exiting..\n" << std::endl;
+    std::cerr << "\nConnection to local server failed, fuzzer exiting..\n"
+              << std::endl;
     exit(1);
   } else {
     std::cout << "Start fuzzing...\n";
-    this->curl = curl_easy_init();  // re-use handle to speed up fuzzing
-    this->target_pid = pid;         // set child PIDin fuzzer
+    this->curl = curl_easy_init(); // re-use handle to speed up fuzzing
+    this->target_pid = pid;        // set child PIDin fuzzer
   }
 
   return target_pid;
@@ -52,8 +53,9 @@ int8_t DuckDB::fuzz() {
   // CSV Fuzzer
   if (file_format == "csv") {
     CSVFuzzer csv_fuzzer(this->target_pid, this->fuzzer_mutation_path);
-    auto status = csv_fuzzer.Fuzz(this->queries, this->db_url, this->input_corpus,
-                                  this->radamsa_output, this->execs, this->curl);
+    auto status =
+        csv_fuzzer.Fuzz(this->queries, this->db_url, this->input_corpus,
+                        this->radamsa_output, this->execs, this->curl);
 
     if (status == -1) {
       return -1;
@@ -62,4 +64,4 @@ int8_t DuckDB::fuzz() {
 
   return 0;
 }
-}  // namespace fuzzberg
+} // namespace fuzzberg

@@ -1,7 +1,7 @@
 /*
 
-  Fuzzberg - a lightweight SQL fuzzer for Iceberg and other file formats
-  ----------------------------------------------------------------------
+  Fuzzberg - a fuzzer for Iceberg and other file-format readers
+  --------------------------------------------------------------
 
   Copyright 2025 [Firebolt Analytics, Inc.]. All rights reserved.
 
@@ -30,25 +30,29 @@
 namespace fuzzberg {
 
 class IcebergFuzzer : public FileFuzzerBase {
- public:
-  IcebergFuzzer(pid_t target_pid, std::string& fuzzer_mutation_path);
+public:
+  IcebergFuzzer(pid_t target_pid, std::string &fuzzer_mutation_path);
   ~IcebergFuzzer() = default;
 
-  int8_t fuzz_metadata_random(std::vector<std::string>& queries, std::string& db_url,
-                              char*& radamsa_buffer, size_t& execs, CURL* curl,
-                              corpus_buffer& metadata_corpus);
+  int8_t fuzz_metadata_random(std::vector<std::string> &queries,
+                              std::string &db_url, char *&radamsa_buffer,
+                              size_t &execs, CURL *curl,
+                              corpus_buffer &metadata_corpus);
 
-  int8_t fuzz_metadata_structured(std::vector<std::string>& queries, std::string& db_url,
-                                  char*& radamsa_buffer, size_t& execs, CURL* curl);
+  int8_t fuzz_metadata_structured(std::vector<std::string> &queries,
+                                  std::string &db_url, char *&radamsa_buffer,
+                                  size_t &execs, CURL *curl);
 
-  int8_t fuzz_manifest_list_structured(std::vector<std::string>& queries, std::string& db_url,
-                                       corpus_buffer& manifest_corpus, char*& radamsa_buffer,
-                                       size_t& execs, CURL* curl);
+  int8_t fuzz_manifest_list_structured(std::vector<std::string> &queries,
+                                       std::string &db_url,
+                                       corpus_buffer &manifest_corpus,
+                                       char *&radamsa_buffer, size_t &execs,
+                                       CURL *curl);
 
   std::string mutated_metadata_path;
   std::string mutated_manifest_list_name;
-  FILE* new_metadata_file_ptr = nullptr;
-  FILE* new_manifest_file_ptr = nullptr;
+  FILE *new_metadata_file_ptr = nullptr;
+  FILE *new_manifest_file_ptr = nullptr;
   nlohmann::json metadata_json;
 };
-}  // namespace fuzzberg
+} // namespace fuzzberg

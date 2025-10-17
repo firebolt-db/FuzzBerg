@@ -1,7 +1,7 @@
 /*
 
-  Fuzzberg - a fuzzer for Iceberg and other file-format database readers
-  ----------------------------------------------------------------------
+  Fuzzberg - a fuzzer for Iceberg and other file-format readers
+  --------------------------------------------------------------
 
   Copyright 2025 [Firebolt Analytics, Inc.]. All rights reserved.
 
@@ -23,13 +23,14 @@
 
 namespace fuzzberg {
 
-bool HTTPHandler::send_query(CURL* curl, const std::string& query, const std::string& db_url,
-                             const std::string& auth_token) {
-  char* errbuf = new char[CURL_ERROR_SIZE];
+bool HTTPHandler::send_query(CURL *curl, const std::string &query,
+                             const std::string &db_url,
+                             const std::string &auth_token) {
+  char *errbuf = new char[CURL_ERROR_SIZE];
   CURLcode ret;
   curl_off_t post_size = query.length();
   if (!auth_token.empty()) {
-    struct curl_slist* list = NULL;
+    struct curl_slist *list = NULL;
     std::string header_prefix = "F-Authorization: Bearer ";
     std::string auth_header = header_prefix + auth_token;
     list = curl_slist_append(list, auth_header.c_str());
@@ -72,10 +73,10 @@ bool HTTPHandler::send_query(CURL* curl, const std::string& query, const std::st
   return 1;
 }
 
-CURLcode HTTPHandler::curlinit(const std::string& db_url) {
+CURLcode HTTPHandler::curlinit(const std::string &db_url) {
   std::cout << "\nChecking connection to server...\n\n" << std::endl;
   sleep(8);
-  CURL* curl_init = curl_easy_init();
+  CURL *curl_init = curl_easy_init();
   if (curl_init) {
     CURLcode ret;
     curl_easy_setopt(curl_init, CURLOPT_URL, db_url.c_str());
@@ -83,7 +84,8 @@ CURLcode HTTPHandler::curlinit(const std::string& db_url) {
     ret = curl_easy_perform(curl_init);
     if (ret == CURLE_OK) {
       std::cout << "\nConnected..." << std::endl;
-      send_query(curl_init, "create database if not exists local_dev_db", db_url, "");
+      send_query(curl_init, "create database if not exists local_dev_db",
+                 db_url, "");
       curl_easy_cleanup(curl_init);
     } else {
       std::cout << "\nDB server not starting, exiting..\n" << std::endl;
@@ -95,15 +97,16 @@ CURLcode HTTPHandler::curlinit(const std::string& db_url) {
   }
 }
 
-size_t HTTPHandler::resp(char* ptr, size_t size, size_t resp_size, void* userdata) {
-  (void)userdata;  // Unused parameter
-  (void)size;      // Unused parameter
-  char* resp = new char[resp_size + 1];
-  std::memcpy(resp, static_cast<const void*>(ptr), resp_size);
+size_t HTTPHandler::resp(char *ptr, size_t size, size_t resp_size,
+                         void *userdata) {
+  (void)userdata; // Unused parameter
+  (void)size;     // Unused parameter
+  char *resp = new char[resp_size + 1];
+  std::memcpy(resp, static_cast<const void *>(ptr), resp_size);
   resp[resp_size] = '\0';
   std::cout << "Response: " << resp << std::endl;
   delete[] resp;
   return resp_size;
 }
 
-}  // namespace fuzzberg
+} // namespace fuzzberg

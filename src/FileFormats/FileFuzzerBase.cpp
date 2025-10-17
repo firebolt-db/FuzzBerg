@@ -1,7 +1,7 @@
 /*
 
-  Fuzzberg - a fuzzer for Iceberg and other file-format database readers
-  ----------------------------------------------------------------------
+  Fuzzberg - a fuzzer for Iceberg and other file-format readers
+  --------------------------------------------------------------
 
   Copyright 2025 [Firebolt Analytics, Inc.]. All rights reserved.
 
@@ -27,7 +27,7 @@ namespace fuzzberg {
 uint32_t FileFuzzerBase::seed_generator() {
   uint32_t init_seed;
   std::mt19937 gen;
-  std::FILE* f = std::fopen("/dev/urandom", "rb");
+  std::FILE *f = std::fopen("/dev/urandom", "rb");
   if (f) {
     if (fread(&init_seed, 1, 4, f) == 4) {
       gen.seed(init_seed);
@@ -46,7 +46,8 @@ uint32_t FileFuzzerBase::seed_generator() {
   return seed;
 }
 
-void FileFuzzerBase::write_crash(char* crash_string, size_t crash_size, std::string& crash_dir) {
+void FileFuzzerBase::write_crash(char *crash_string, size_t crash_size,
+                                 std::string &crash_dir) {
   std::filesystem::directory_entry _crash_dir(crash_dir);
 
   if (!_crash_dir.exists()) {
@@ -54,19 +55,22 @@ void FileFuzzerBase::write_crash(char* crash_string, size_t crash_size, std::str
   }
   if (_crash_dir.is_directory()) {
     std::string crash_file = _crash_dir.path().string() + "crash.txt";
-    FILE* crash_fp = std::fopen(crash_file.c_str(), "w");
+    FILE *crash_fp = std::fopen(crash_file.c_str(), "w");
     if (crash_fp) {
       if (std::fwrite(crash_string, 1, crash_size, crash_fp) == crash_size) {
-        std::cout << "Crash data written successfully to: " << crash_file << "\n";
+        std::cout << "Crash data written successfully to: " << crash_file
+                  << "\n";
       }
       std::fclose(crash_fp);
     } else {
-      FILE* tmp_crash = std::fopen("/tmp/crash.txt", "w");
+      FILE *tmp_crash = std::fopen("/tmp/crash.txt", "w");
       if (tmp_crash) {
         if (std::fwrite(crash_string, 1, crash_size, tmp_crash) == crash_size) {
-          std::cout << "Crash data written successfully to: " << "/tmp/crash.txt" << "\n";
+          std::cout << "Crash data written successfully to: "
+                    << "/tmp/crash.txt" << "\n";
         } else {
-          std::cout << "Could not write to crash file, writing to STDOUT for repro";
+          std::cout
+              << "Could not write to crash file, writing to STDOUT for repro";
           std::fwrite(crash_string, 1, crash_size, stdout);
         }
         std::fclose(tmp_crash);
@@ -75,9 +79,12 @@ void FileFuzzerBase::write_crash(char* crash_string, size_t crash_size, std::str
   }
 }
 
-void FileFuzzerBase::write_radamsa_mutation(char*& buffer, FILE*& mutated_file_ptr, size_t length) {
+void FileFuzzerBase::write_radamsa_mutation(char *&buffer,
+                                            FILE *&mutated_file_ptr,
+                                            size_t length) {
   // we check for valid mutated_file_ptr in main()
-  ftruncate(fileno(mutated_file_ptr), 0);  // hopefully less expensive than repeated fopen()
+  ftruncate(fileno(mutated_file_ptr),
+            0); // hopefully less expensive than repeated fopen()
   rewind(mutated_file_ptr);
 
   if (std::fwrite(buffer, 1, length, mutated_file_ptr) == length) {
@@ -86,18 +93,19 @@ void FileFuzzerBase::write_radamsa_mutation(char*& buffer, FILE*& mutated_file_p
       exit(1);
     }
   } else {
-    std::cout << "\nMutated data could not be written, please check if filepath exists\n"
+    std::cout << "\nMutated data could not be written, please check if "
+                 "filepath exists\n"
               << std::endl;
     exit(1);
   }
 }
 
-corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path& path) {
+corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path &path) {
   size_t size = std::filesystem::file_size(path.string());
 
-  char* input = new char[size];
+  char *input = new char[size];
 
-  std::FILE* input_corp = std::fopen(path.string().c_str(), "r");
+  std::FILE *input_corp = std::fopen(path.string().c_str(), "r");
   if (!input_corp) {
     std::cerr << "Failed to open corpus file: " << path.string() << std::endl;
     delete[] input;
@@ -107,7 +115,8 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path& path) {
   std::fclose(input_corp);
 
   if (read_bytes != size) {
-    std::cerr << "Failed to read entire corpus file: " << path.string() << std::endl;
+    std::cerr << "Failed to read entire corpus file: " << path.string()
+              << std::endl;
     delete[] input;
     exit(1);
   }
@@ -115,12 +124,15 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path& path) {
   /* For fuzzing Iceberg Metadata: we modify necessary fields here
   to avoid repeated parsing in hot paths during fuzzing */
 
-  if (this->_corpus_info.format.compare("iceberg") == 0 && path.extension() == ".json") {
+  if (this->_corpus_info.format.compare("iceberg") == 0 &&
+      path.extension() == ".json") {
     nlohmann::json metadata_json;
     metadata_json = nlohmann::json::parse(input, nullptr, false);
 
-    if (metadata_json.is_discarded() || !(metadata_json.contains("current-snapshot-id"))) {
-      std::cerr << "Parsing failed, moving to the next corpus" << "\n" << std::endl;
+    if (metadata_json.is_discarded() ||
+        !(metadata_json.contains("current-snapshot-id"))) {
+      std::cerr << "Parsing failed, moving to the next corpus" << "\n"
+                << std::endl;
       delete[] input;
       return (corpus_stat{0, nullptr});
     }
@@ -133,21 +145,23 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path& path) {
     if (metadata_json.contains("snapshot-log")) {
       metadata_json.erase("snapshot-log");
     }
-    for (auto& snap : metadata_json["snapshots"]) {
+    for (auto &snap : metadata_json["snapshots"]) {
       if (snap.is_object()) {
         snap["manifest-list"] =
-            std::string("s3://" + *this->_corpus_info.s3_bucket + "/metadata/manifest_list.avro");
+            std::string("s3://" + *this->_corpus_info.s3_bucket +
+                        "/metadata/manifest_list.avro");
       }
     }
 
-    std::string dumped_json = metadata_json.dump(-1,     // no prettifying
-                                                 ' ',    // indent char (unused)
-                                                 false,  // ensure_ascii false
-                                                 nlohmann::json::error_handler_t::replace);
+    std::string dumped_json =
+        metadata_json.dump(-1,    // no prettifying
+                           ' ',   // indent char (unused)
+                           false, // ensure_ascii false
+                           nlohmann::json::error_handler_t::replace);
 
-    char* updated_metadata = new char[dumped_json.size() + 1];
+    char *updated_metadata = new char[dumped_json.size() + 1];
     memcpy(updated_metadata, dumped_json.data(), dumped_json.size());
-    updated_metadata[dumped_json.size()] = '\0';  // Add null terminator
+    updated_metadata[dumped_json.size()] = '\0'; // Add null terminator
     return (corpus_stat{dumped_json.size(), updated_metadata});
   }
 
@@ -155,4 +169,4 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path& path) {
   return stat;
 }
 
-}  // namespace fuzzberg
+} // namespace fuzzberg
