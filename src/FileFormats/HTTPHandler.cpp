@@ -23,11 +23,9 @@
 
 namespace fuzzberg {
 
-bool HTTPHandler::send_query(CURL *curl, const std::string &query,
-                             const std::string &db_url,
-                             const std::string &auth_token) {
-  char *errbuf = new char[CURL_ERROR_SIZE];
-  CURLcode ret;
+CURLcode HTTPHandler::send_query(CURL *curl, const std::string &query,
+                                 const std::string &db_url,
+                                 const std::string &auth_token) {
   curl_off_t post_size = query.length();
   if (!auth_token.empty()) {
     struct curl_slist *list = NULL;
@@ -41,17 +39,9 @@ bool HTTPHandler::send_query(CURL *curl, const std::string &query,
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, post_size);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 50L);
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HTTPHandler::resp);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
-    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf);
-    ret = curl_easy_perform(curl);
-    if (ret != CURLE_OK) {
-      std::cerr << "\nCurl returned error: " << errbuf << "\n" << std::endl;
-      curl_slist_free_all(list);
-      curl_easy_cleanup(curl);
-      return 0;
-    }
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L); // 15 second timeout
+
   } else {
     curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 102400L);
     curl_easy_setopt(curl, CURLOPT_URL, db_url.c_str());
@@ -60,17 +50,11 @@ bool HTTPHandler::send_query(CURL *curl, const std::string &query,
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, post_size);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 50L);
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HTTPHandler::resp);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
-    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf);
-    ret = curl_easy_perform(curl);
-    if (ret != CURLE_OK) {
-      std::cerr << "\nCurl returned error: " << errbuf << "\n" << std::endl;
-      curl_easy_cleanup(curl);
-      return 0;
-    }
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L); // 15 second timeout
   }
-  return 1;
+  // we free the curl handle during Database object cleanup (e.g. when fuzzing
+  // is interrupted, or crash is detected)
+  return (curl_easy_perform(curl));
 }
 
 CURLcode HTTPHandler::curlinit(const std::string &db_url) {
@@ -84,8 +68,10 @@ CURLcode HTTPHandler::curlinit(const std::string &db_url) {
     ret = curl_easy_perform(curl_init);
     if (ret == CURLE_OK) {
       std::cout << "\nConnected..." << std::endl;
-      send_query(curl_init, "create database if not exists local_dev_db",
-                 db_url, "");
+      // create a database if target expects one for query executions (e.g.
+      // in URL: http:://localhost:<port>/?database=fuzzberg)
+      /* send_query(curl_init, "create database if not exists fuzzberg",
+                  db_url, "");*/
       curl_easy_cleanup(curl_init);
     } else {
       std::cout << "\nDB server not starting, exiting..\n" << std::endl;
@@ -95,18 +81,6 @@ CURLcode HTTPHandler::curlinit(const std::string &db_url) {
     std::cout << "\nCurl init failed, exiting..\n" << std::endl;
     exit(1);
   }
-}
-
-size_t HTTPHandler::resp(char *ptr, size_t size, size_t resp_size,
-                         void *userdata) {
-  (void)userdata; // Unused parameter
-  (void)size;     // Unused parameter
-  char *resp = new char[resp_size + 1];
-  std::memcpy(resp, static_cast<const void *>(ptr), resp_size);
-  resp[resp_size] = '\0';
-  std::cout << "Response: " << resp << std::endl;
-  delete[] resp;
-  return resp_size;
 }
 
 } // namespace fuzzberg

@@ -56,15 +56,15 @@ int8_t CSVFuzzer::Fuzz(std::vector<std::string> &queries, std::string &db_url,
     for (auto const &query : queries) {
       execs++;
       std::cout << "\nQuery : " << query << "\n" << std::endl;
-      if (send_query(curl, query, db_url, "") != 1) {
-        crash_input_size = output_size; // save size of the mutated file
-        return -1;                      // return -1 if query exec fails
+      if (send_query(curl, query, db_url, "") != CURLE_OK) {
+        // save size of the crash file
+        crash_input_size = output_size;
+        return -1;
       } else
         continue;
     }
-
-    memset(radamsa_buffer, 0, output_size); // clear the buffer for
-    // next iteration
+    // clear the buffer for next iteration
+    memset(radamsa_buffer, 0, output_size);
   }
   return 0;
 }

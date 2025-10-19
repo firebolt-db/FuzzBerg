@@ -121,13 +121,15 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path &path) {
     exit(1);
   }
 
-  /* For fuzzing Iceberg Metadata: we modify necessary fields here
+  /* For fuzzing Iceberg Metadata: modify necessary fields here
   to avoid repeated parsing in hot paths during fuzzing */
 
   if (this->_corpus_info.format.compare("iceberg") == 0 &&
       path.extension() == ".json") {
     nlohmann::json metadata_json;
-    metadata_json = nlohmann::json::parse(input, nullptr, false);
+    // *input is non-null terminated, so specify exact length to read in
+    // nlohmann::json::parse
+    metadata_json = nlohmann::json::parse(input, input + size, nullptr, false);
 
     if (metadata_json.is_discarded() ||
         !(metadata_json.contains("current-snapshot-id"))) {

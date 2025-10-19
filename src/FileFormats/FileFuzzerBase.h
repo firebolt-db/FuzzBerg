@@ -73,8 +73,8 @@ public:
 
   // Radamsa mutation buffer size
   static constexpr size_t RADAMSA_BUFFER_SIZE =
-      1024 * 10; // 10 KB buffer (we define this inside Database.h too as the
-                 // crash writing function needs it)
+      1024 * 1024; // 1 MB buffer (we define this inside Database.h too as the
+                   // crash writing function needs it)
 
 protected:
   // Override this in child format-fuzzers

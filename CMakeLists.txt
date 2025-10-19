@@ -6,6 +6,20 @@ project(fuzzberg
   HOMEPAGE_URL "https://github.com/firebolt-db/fuzzberg"
   LANGUAGES CXX
 )
+# Run with ASan to detect overflows in FuzzBerg itself
+option(SANITIZE "Enable sanitizers (ADDRESS)" OFF)
+
+# Configure sanitizer flags
+if(SANITIZE)
+    if(SANITIZE STREQUAL "ADDRESS")
+        set(SANITIZER_FLAGS "-fsanitize=address -fno-omit-frame-pointer -g")
+        message(STATUS "Building with AddressSanitizer")
+    endif()
+
+    # Apply sanitizer flags to both compile and link
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SANITIZER_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${SANITIZER_FLAGS}")
+endif()
 
 # TODO: Split FileFormat fuzzers and Databases into separate STATIC libs
 add_executable(fuzzberg src/main.cpp src/FileFormats/FileFuzzerBase.cpp src/FileFormats/csv.cpp src/FileFormats/parquet.cpp src/FileFormats/iceberg.cpp src/FileFormats/HTTPHandler.cpp src/Databases/firebolt-core/firebolt-core.cpp src/Databases/duckdb/duckdb.cpp)
