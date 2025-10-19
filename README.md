@@ -13,7 +13,11 @@
 
 FuzzBerg was built to secure the launch of [Firebolt Core](https://www.firebolt.io/core) and [READ_ICEBERG](https://docs.firebolt.io/reference-sql/functions-reference/table-valued/read_iceberg), and helped us overcome the challenges of fuzzing complex database interfaces, such as `Table Valued Functions` and `COPY_FROM`. 
 
-It quickly proved its worth by discovering <b> 5 critical bugs </b> across all our TVF formats- including `READ_ICEBERG`.
+It quickly proved its worth by discovering <b> 5 critical bugs </b> across all our TVF formats- including `READ_ICEBERG`. 
+
+As a structured fuzzer, it relies on valid seed corpus. If a crash is detected in target, it writes the crash output to a user provided path and exits.  
+
+For more details about the internals, you can read the [official blog](https://www.firebolt.io/blog/open-sourcing-fuzzberg).
 
 <br>
 
@@ -112,11 +116,34 @@ Optional:
 
 #### Sample output:
 ```
-Adding query: SELECT * FROM READ_ICEBERG(url => 's3://iceberg-fuzzing/metadata/v3.metadata.json');
-Loaded 1 queries from ./fb_core_iceberg.json
+[INFO] Loaded 1 queries from: ./fb_core_iceberg.json
+
+Loading seed corpus from: ./corpus_iceberg/
+
+[+] Loaded 7 metadata files and 8 manifest list files in the corpus.
+
 Checking connection to server...
-starting up
-...
+......
+......
+
+********* Starting generic metadata fuzzing *********
+
+Query : SELECT * FROM READ_ICEBERG(url => 's3://iceberg-fuzzing/metadata/v3.metadata.json');
+{
+  "errors": [
+    {
+      "description": "Exception: error: 1: unterminated string literal"
+    }
+  ],
+  "query": {
+    "query_id": "0b6bddc7-881a-4531-9012-5d5e5dc2cb16",
+    "query_label": null,
+    "request_id": "f222ca06-a88d-4888-bfe7-86b2764a7828"
+  },
+  "statistics": {
+    "elapsed": 0.0
+  }
+}
 
 ******** Starting structured metadata fuzzing *********
 
@@ -141,29 +168,8 @@ Response: {
   }
 }
 
-Key: "current-schema-id", Original Value: 0, Mutated Value: 128
-
-
-Query :  SELECT * FROM READ_ICEBERG(url => 's3://iceberg-fuzzing/metadata/v3.metadata.json');
-
-Response: {
-  "errors": [
-    {
-      "description": "There is no schema with \"schema-id\" that matches \"current-schema-id\" in metadata"
-    }
-  ],
-  "query": {
-    "query_id": "28a2b98f-e599-4310-953e-372f00732aa0",
-    "query_label": null,
-    "request_id": "2ce997c2-5a20-43cc-88bf-7b78f5cae5a7"
-  },
-  "statistics": {
-    "elapsed": 0.0
-  }
-}
 ```
  
-
 <br>
 
 ### [Firebolt `READ_PARQUET()`](https://docs.firebolt.io/reference-sql/functions-reference/table-valued/read_parquet)
@@ -224,11 +230,11 @@ Response: {
 
 #### Sample output:
 ```
-Adding query: SELECT * FROM read_csv('/tmp/fuzz.csv');
+[INFO] Loaded 2 queries from: duckdb_csv.json
 
-Adding query: SELECT * FROM read_csv('/tmp/fuzz.csv',header = true,delim = '|',allow_quoted_nulls = false, ignore_errors=false);
+Loading seed corpus from: ./corpus/csv/
 
-Loaded 2 queries from queries/duckdb_csv.json
+[+] Loaded 10 files in the corpus.
 
 Checking connection to server...
 
@@ -257,8 +263,14 @@ Possible Solution: Set the correct encoding, if available, to read this CSV File
 
 <br>
 
-## Reporting Bugs
+## Future Research / Improvements
+
+- **Increase fuzzing speed**: Achieve higher execs/sec
+- **Coverage-guided fuzzing**: Since FuzzBerg controls targets via `fork/exec`, targets can be [instrumented](https://clang.llvm.org/docs/SanitizerCoverage.html#) to report code coverage to shared memory, allowing seed prioritization
+- **Expanding support**: New file formats, additional targets/protocols
 
 <br>
 
-If you discover a bug, please report it via GitHub Issues or contact the maintainers directly.
+## Reporting Bugs
+
+If you discover a bug, please report it via GitHub Issues 

@@ -38,7 +38,6 @@ uint32_t FileFuzzerBase::seed_generator() {
     }
     std::fclose(f);
   } else {
-    // Seeding without /dev/random
     gen.seed(static_cast<uint32_t>(time(NULL)) ^ getpid() ^ clock());
   }
 
@@ -84,7 +83,7 @@ void FileFuzzerBase::write_radamsa_mutation(char *&buffer,
                                             size_t length) {
   // we check for valid mutated_file_ptr in main()
   ftruncate(fileno(mutated_file_ptr),
-            0); // hopefully less expensive than repeated fopen()
+            0); 
   rewind(mutated_file_ptr);
 
   if (std::fwrite(buffer, 1, length, mutated_file_ptr) == length) {

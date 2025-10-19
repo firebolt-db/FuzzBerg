@@ -56,7 +56,14 @@ int8_t CSVFuzzer::Fuzz(std::vector<std::string> &queries, std::string &db_url,
     for (auto const &query : queries) {
       execs++;
       std::cout << "\nQuery : " << query << "\n" << std::endl;
-      if (send_query(curl, query, db_url, "") != CURLE_OK) {
+      auto ret_code = send_query(curl, query, db_url, "");
+      if (ret_code != CURLE_OK) {
+        if (ret_code == CURLE_OPERATION_TIMEDOUT){
+          std::cerr << "Target timed out, kill child and stop fuzzing"
+                    << std::endl;
+          kill(this->_target_pid, SIGKILL);
+          exit(1);
+        }
         // save size of the crash file
         crash_input_size = output_size;
         return -1;

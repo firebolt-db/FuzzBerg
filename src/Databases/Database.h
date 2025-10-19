@@ -121,6 +121,19 @@ public:
         }
       }
     }
+    if(this->file_format == "iceberg") {
+      std::cout << "\033[1;32m[+]\033[0m Loaded \033[1;36m" 
+          << this->metadata_corpus.size()
+          << "\033[0m metadata files and \033[1;36m" 
+          << this->manifest_corpus.size()
+          << "\033[0m manifest list files in the corpus."
+          << std::endl;
+    } else {
+      std::cout << "\033[1;32m[+]\033[0m Loaded \033[1;36m" 
+          << this->input_corpus.size()
+          << "\033[0m files in the corpus."
+          << std::endl;
+    }
   }
 
   inline void _write_crash(char *crash_string, std::string &crash_dir) {

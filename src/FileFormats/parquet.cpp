@@ -41,6 +41,7 @@ ParquetFuzzer::ParquetFuzzer(pid_t target_pid,
     kill(target_pid, SIGKILL);
     exit(1);
   }
+  this->_target_pid = target_pid;
   radamsa_init();
 }
 
@@ -140,7 +141,14 @@ int8_t ParquetFuzzer::Fuzz(std::vector<std::string> &queries,
     for (auto const &query : queries) {
       execs++;
       std::cout << "\nQuery : " << query << "\n" << std::endl;
-      if (send_query(curl, query, db_url, "") != CURLE_OK) {
+      auto ret_code = send_query(curl, query, db_url, "");
+      if (ret_code != CURLE_OK) {
+        if (ret_code == CURLE_OPERATION_TIMEDOUT){
+          std::cerr << "Target timed out, kill child and stop fuzzing"
+                    << std::endl;
+          kill(this->_target_pid, SIGKILL);
+          exit(1);
+        }
         // save size of the crash file
         crash_input_size = 4 + output_size + meta_size + 4 + 4;
         delete[] data_pages;

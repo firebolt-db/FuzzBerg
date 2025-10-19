@@ -84,6 +84,8 @@ protected:
     return 0;
   }
 
+  pid_t _target_pid; 
+
   void write_radamsa_mutation(char *&buffer, FILE *&mutated_file_ptr,
                               size_t length);
   uint32_t seed_generator();

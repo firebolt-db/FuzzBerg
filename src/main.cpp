@@ -297,13 +297,14 @@ int main(int argc, char *argv[]) {
   query_file.close();
 
   for (const auto &query : queries_json["queries"]) {
-    std::cout << "\nAdding query: " << query.get<std::string>() << std::endl;
     fuzz_target->queries.push_back(query.get<std::string>());
   }
-  std::cout << "\nLoaded " << fuzz_target->queries.size() << " queries from "
-            << queries << std::endl;
+  std::cout << "\n" << Green << "[INFO] Loaded " << fuzz_target->queries.size() 
+            << " queries from: " << Reset << queries << "\n" << std::endl;
 
   // Load seed corpus
+  std::cout << "Loading seed corpus from: " << corpus_dir << "\n"
+            << std::endl;
   fuzz_target->_load_corpus(corpus_dir);
 
   if (sigsetjmp(env, 1) != 0) {

@@ -81,9 +81,12 @@ int8_t IcebergFuzzer::fuzz_metadata_random(std::vector<std::string> &queries,
     std::cout << "\nQuery : " << query << std::endl;
     auto return_code = send_query(curl, query, db_url, "");
     if (return_code != CURLE_OK) {
-      std::cout << "CURL error: " << return_code << " - "
-                << curl_easy_strerror(return_code) << std::endl;
-      exit(1);
+      if (return_code == CURLE_OPERATION_TIMEDOUT){
+          std::cerr << "Target timed out, kill child and stop fuzzing"
+                    << std::endl;
+          kill(this->_target_pid, SIGKILL);
+          exit(1);
+        }
 
       // save size of the crash file
       crash_input_size = output_size;
@@ -229,6 +232,12 @@ int8_t IcebergFuzzer::fuzz_metadata_structured(
                 << std::endl;
       auto return_code = send_query(curl, query, db_url, "");
       if (return_code != CURLE_OK) {
+        if (return_code == CURLE_OPERATION_TIMEDOUT){
+          std::cerr << "Target timed out, kill child and stop fuzzing"
+                    << std::endl;
+          kill(this->_target_pid, SIGKILL);
+          exit(1);
+        }
         // save size of the crash file
         crash_input_size = output_size;
         std::fclose(new_metadata_file_ptr);
@@ -352,7 +361,6 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
     }
   }
 
-  std::cout << "Avro data: " << radamsa_buffer << std::endl;
   write_radamsa_mutation(radamsa_buffer, new_manifest_file_ptr,
                          output_size + 4);
 
@@ -362,6 +370,12 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
     std::cout << "\nQuery : " << " " << query << "\n" << std::endl;
     auto return_code = send_query(curl, query, db_url, "");
     if (return_code != CURLE_OK) {
+      if (return_code == CURLE_OPERATION_TIMEDOUT){
+          std::cerr << "Target timed out, kill child and stop fuzzing"
+                    << std::endl;
+          kill(this->_target_pid, SIGKILL);
+          exit(1);
+        }
       // save size of the crash file
       crash_input_size = output_size;
       std::fclose(new_metadata_file_ptr);
