@@ -41,6 +41,7 @@ ParquetFuzzer::ParquetFuzzer(pid_t target_pid,
     kill(target_pid, SIGKILL);
     exit(1);
   }
+  this->_target_pid = target_pid;
   radamsa_init();
 }
 
@@ -60,8 +61,8 @@ int8_t ParquetFuzzer::Fuzz(std::vector<std::string> &queries,
   rand:
     uint64_t rand_ = rand() % input_corpus.size();
 
-    // Retain Parquet file format (excluding pages) in mutations to generate
-    // more fuzz coverage
+    // Retain Parquet file format (excluding pages),
+    // and mutate only Pages as per Parquet spec
     // (https://github.com/apache/parquet-format/tree/master?tab=readme-ov-file#file-format)
 
     if (input_corpus[rand_].size <
@@ -102,7 +103,6 @@ int8_t ParquetFuzzer::Fuzz(std::vector<std::string> &queries,
     file_metadata_start = footer_length_field - meta_size;
     // one last boundary check, although meta_size has been validated above
     if (file_metadata_start < input_corpus[rand_].corpus + 4) {
-      // std::cout << "Metadata start is before data pages\n" << std::endl;
       goto rand; // Pick a new random corpus
     }
 
@@ -111,17 +111,13 @@ int8_t ParquetFuzzer::Fuzz(std::vector<std::string> &queries,
       data_pages = new char[file_metadata_start - page_start];
       if (!data_pages) {
         std::cout << "Memory allocation failed\n" << std::endl;
-        goto rand; // Pick a new random corpus
+        goto rand;
       }
     } else {
-      // std::cerr << "Data page size is not positive" << std::endl;
-      goto rand; // Pick a new random corpus
+      goto rand;
     }
-
-    std::memcpy(
-        data_pages, page_start,
-        file_metadata_start -
-            page_start); // copy only the data pages into buffer for mutation
+    // copy only the data pages into buffer for Radamsa mutation
+    std::memcpy(data_pages, page_start, file_metadata_start - page_start);
 
     // We trust Radamsa to keep output_size <= RADAMSA_BUFFER_SIZE - (meta_size
     // + 12)
@@ -131,7 +127,7 @@ int8_t ParquetFuzzer::Fuzz(std::vector<std::string> &queries,
                 reinterpret_cast<uint8_t *>(radamsa_buffer) + 4,
                 RADAMSA_BUFFER_SIZE - (meta_size + 12), seed_generator());
 
-    // recreate Parquet format with radamsa_output
+    // recreate Parquet format with Radamsa mutations
     memcpy(radamsa_buffer, "PAR1", 4);
     memcpy(radamsa_buffer + 4 + output_size, file_metadata_start, meta_size);
     memcpy(radamsa_buffer + 4 + output_size + meta_size, footer_length_field,
@@ -145,12 +141,19 @@ int8_t ParquetFuzzer::Fuzz(std::vector<std::string> &queries,
     for (auto const &query : queries) {
       execs++;
       std::cout << "\nQuery : " << query << "\n" << std::endl;
-      if (send_query(curl, query, db_url, "") != 1) {
-        crash_input_size = 4 + output_size + meta_size + 4 +
-                           4; // save size of the mutated file
+      auto ret_code = send_query(curl, query, db_url, "");
+      if (ret_code != CURLE_OK) {
+        if (ret_code == CURLE_OPERATION_TIMEDOUT){
+          std::cerr << "Target timed out, kill child and stop fuzzing"
+                    << std::endl;
+          kill(this->_target_pid, SIGKILL);
+          exit(1);
+        }
+        // save size of the crash file
+        crash_input_size = 4 + output_size + meta_size + 4 + 4;
         delete[] data_pages;
         data_pages = nullptr;
-        return -1; // return -1 if query exec fails
+        return -1;
       } else
         continue;
     }

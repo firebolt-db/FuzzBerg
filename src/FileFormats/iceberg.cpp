@@ -58,8 +58,8 @@ int8_t IcebergFuzzer::fuzz_metadata_random(std::vector<std::string> &queries,
   auto seed = seed_generator();
   srand(seed);
 
-  size_t rand_metadata =
-      rand() % metadata_corpus.size(); // pick a random metadata from the corpus
+  // pick a random metadata from the Metadata corpus
+  size_t rand_metadata = rand() % metadata_corpus.size();
 
   this->metadata_json = nlohmann::json::parse(
       metadata_corpus[rand_metadata].corpus, nullptr, false);
@@ -76,23 +76,20 @@ int8_t IcebergFuzzer::fuzz_metadata_random(std::vector<std::string> &queries,
                "*********\033[0m\n\n"
             << std::endl;
 
-  /*std::cout << "Original Metadata: "
-            << this->metadata_json.dump(-1, ' ', false,
-  nlohmann::json::error_handler_t::replace)
-            << "\n"
-            << std::endl;
-  std::cout << "Mutated Metadata: \033[1;31m" << std::string(radamsa_buffer,
-  output_size)
-            << "\033[0m\n"
-            << std::endl;*/
-
   for (auto const &query : queries) {
     execs++;
-    std::cout << "\nQuery : "
-              << " " << query << "\n"
-              << std::endl;
-    if (send_query(curl, query, db_url, "") != 1) {
-      crash_input_size = output_size; // save size of the mutated file
+    std::cout << "\nQuery : " << query << std::endl;
+    auto return_code = send_query(curl, query, db_url, "");
+    if (return_code != CURLE_OK) {
+      if (return_code == CURLE_OPERATION_TIMEDOUT){
+          std::cerr << "Target timed out, kill child and stop fuzzing"
+                    << std::endl;
+          kill(this->_target_pid, SIGKILL);
+          exit(1);
+        }
+
+      // save size of the crash file
+      crash_input_size = output_size;
       std::fclose(new_metadata_file_ptr);
       std::fclose(new_manifest_file_ptr);
       return -1;
@@ -100,8 +97,8 @@ int8_t IcebergFuzzer::fuzz_metadata_random(std::vector<std::string> &queries,
       continue;
     }
   }
-  /* memset(radamsa_buffer, 0,
-          RADAMSA_BUFFER_SIZE); // clear the buffer for next iteration */
+  // clear the buffer for next iteration
+  memset(radamsa_buffer, 0, output_size);
   output_size = 0;
   return 0;
 }
@@ -124,8 +121,8 @@ int8_t IcebergFuzzer::fuzz_metadata_structured(
   std::string _key = "";
 
   for (const auto &[key, value] : this->metadata_json.items()) {
-    auto tmp = this->metadata_json[key]; // store original value to restore it
-                                         // before the next field mutation
+    // to restore original value post-mutation
+    auto tmp = this->metadata_json[key];
 
     auto rand_ = rand() % 10;
 
@@ -180,12 +177,12 @@ int8_t IcebergFuzzer::fuzz_metadata_structured(
     auto parsed_value = nlohmann::json::parse(radamsa_buffer, nullptr, false);
 
     if (parsed_value.is_discarded()) {
-      // std::cerr << "Exception during metadata field mutation: could not parse
-      // mutated value"
-      //           << std::endl;
+
       memset(radamsa_buffer, 0, output_size);
       output_size = 0;
-      goto mutate; // try mutating the same field again
+      // try mutating the same field again
+      // TODO: add a retry counter
+      goto mutate;
     }
 
     if (rand_ < 5) {
@@ -233,8 +230,16 @@ int8_t IcebergFuzzer::fuzz_metadata_structured(
       std::cout << "\nQuery : "
                 << " " << query << "\n"
                 << std::endl;
-      if (send_query(curl, query, db_url, "") != 1) {
-        crash_input_size = output_size; // save size of the mutated file
+      auto return_code = send_query(curl, query, db_url, "");
+      if (return_code != CURLE_OK) {
+        if (return_code == CURLE_OPERATION_TIMEDOUT){
+          std::cerr << "Target timed out, kill child and stop fuzzing"
+                    << std::endl;
+          kill(this->_target_pid, SIGKILL);
+          exit(1);
+        }
+        // save size of the crash file
+        crash_input_size = output_size;
         std::fclose(new_metadata_file_ptr);
         std::fclose(new_manifest_file_ptr);
         return -1;
@@ -242,9 +247,10 @@ int8_t IcebergFuzzer::fuzz_metadata_structured(
         continue;
       }
     }
-    metadata_json[key] = tmp;               // restore original key value
-    memset(radamsa_buffer, 0, output_size); // clear the buffer for
-    // next iteration
+    // restore original key value
+    metadata_json[key] = tmp;
+    // clear the buffer for next iteration
+    memset(radamsa_buffer, 0, output_size);
     output_size = 0;
   }
   return 0;
@@ -288,6 +294,9 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
 
   // --- Enhanced Avro fuzzing logic ---
 
+  const char *fake_schema = "{\"type\":\"record\",\"name\":\"Fuzz\","
+                            "\"fields\":[{\"name\":\"x\",\"type\":\"int\"}]}";
+
   // 1. Corrupt sync marker (last 16 bytes and after header)
   if (rand() % 10 < 3 && output_size + 4 > 20) {
     size_t sync_offset = output_size + 4 - 16;
@@ -307,14 +316,16 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
   }
 
   // 3. Insert random Avro schema fragments
-  if (rand() % 10 < 3 && output_size != 0 &&
-      output_size + 32 < RADAMSA_BUFFER_SIZE - 4) {
-    const char *fake_schema = "{\"type\":\"record\",\"name\":\"Fuzz\","
-                              "\"fields\":[{\"name\":\"x\",\"type\":\"int\"}]}";
-    size_t insert_pos = 4 + rand() % output_size;
+
+  if (rand() % 10 < 3) {
+
+    size_t insert_pos = 100 + rand() % 100;
     size_t schema_len = strlen(fake_schema);
-    memcpy(radamsa_buffer + insert_pos, fake_schema, schema_len);
-    output_size += schema_len;
+    // We will possibly miss fake schema insertions if Radamsa mutations <
+    // 199 + strlen(fake_schema) bytes, but that's fine
+    if (insert_pos + schema_len < output_size) {
+      memcpy(radamsa_buffer + insert_pos, fake_schema, schema_len);
+    }
   }
 
   // 4. Truncate or pad file
@@ -337,10 +348,16 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
   if (output_size > 128 && (rand() % 10) < 2) {
     size_t block_start = 4 + rand() % (output_size / 2);
     size_t block_len = 16 + rand() % 32;
-    if (block_start + block_len < output_size) {
+    // block_start + block_len < output_size: guards against overflows if
+    // output_size is too small
+    // output_size + block_len < RADAMSA_BUFFER_SIZE - 4: ensures we don't
+    // exceed buffer limits
+    if ((block_start + block_len < output_size) &&
+        (output_size + block_len < RADAMSA_BUFFER_SIZE - 4)) {
       memmove(radamsa_buffer + block_start + block_len,
               radamsa_buffer + block_start, block_len);
-      output_size += block_len;
+      if (block_start + block_len + block_len > output_size)
+        output_size += block_start + block_len + block_len - output_size;
     }
   }
 
@@ -351,18 +368,32 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
   for (auto const &query : queries) {
     execs++;
     std::cout << "\nQuery : " << " " << query << "\n" << std::endl;
-    if (send_query(curl, query, db_url, "") != 1) {
+    auto return_code = send_query(curl, query, db_url, "");
+    if (return_code != CURLE_OK) {
+      if (return_code == CURLE_OPERATION_TIMEDOUT){
+          std::cerr << "Target timed out, kill child and stop fuzzing"
+                    << std::endl;
+          kill(this->_target_pid, SIGKILL);
+          exit(1);
+        }
+      // save size of the crash file
       crash_input_size = output_size;
       std::fclose(new_metadata_file_ptr);
       std::fclose(new_manifest_file_ptr);
       return -1;
+    } else {
+      continue;
     }
   }
   memset(radamsa_buffer, 0, output_size);
   output_size = 0;
   metadata_json.clear();
 
-  // TODO: Add Step 4 (Manifest File fuzzing)
+  // TODO:
+  // - Move Avro fuzzing to a separate class (so we can fuzz read_avro() TVFs)
+  // - Extend Avro fuzzing with more structure
+  // - Extend Iceberg fuzzing to Manifest File layer by overwriting
+  // manifest_path field in Manifest List
 
   return 0;
 }

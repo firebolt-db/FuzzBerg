@@ -46,7 +46,7 @@ public:
   DatabaseHandler() = default;
   ~DatabaseHandler() = default;
 
-#define RADAMSA_BUFFER_SIZE 1024 * 10 // 10 KB buffer for Radamsa mutations
+#define RADAMSA_BUFFER_SIZE 1024 * 1024 // 1 MB buffer for Radamsa mutations
 
   // Buffers and corpus
   char *radamsa_output =
@@ -75,10 +75,11 @@ public:
                            // std::optional later)
 
   // Abstract interfaces
-  virtual pid_t
-  ForkTarget() = 0; // launches target db (override in derived classes)
-  virtual int8_t
-  fuzz() = 0; // calls a file-format fuzzer (override in derived classes)
+  // launches target db (override in derived classes)
+  virtual pid_t ForkTarget() = 0;
+
+  // calls a file-format fuzzer (override in derived classes)
+  virtual int8_t fuzz() = 0;
 
   // Load seed corpus
   inline void _load_corpus(std::string &corpus_dir) {
@@ -98,8 +99,8 @@ public:
         }
         // Iceberg corpus loading
         else {
-          if (entry.path().extension() ==
-              ".json") { // JSON corpus for metadata layer fuzzing
+          // JSON corpus for metadata layer fuzzing
+          if (entry.path().extension() == ".json") {
             auto return_stat = fuzzer_base.load_corpus(entry.path());
             // check for empty corpus entries
             if (return_stat.corpus != nullptr && return_stat.size != 0) {
@@ -107,8 +108,8 @@ public:
             } else
               continue;
           } else {
-            if (entry.path().extension() ==
-                ".avro") { // Avro corpus for manifest-list fuzzing
+            // Avro corpus for manifest-list fuzzing
+            if (entry.path().extension() == ".avro") {
               auto return_stat = fuzzer_base.load_corpus(entry.path());
               // check for empty corpus entries
               if (return_stat.corpus != nullptr && return_stat.size != 0) {
@@ -119,6 +120,19 @@ public:
           }
         }
       }
+    }
+    if(this->file_format == "iceberg") {
+      std::cout << "\033[1;32m[+]\033[0m Loaded \033[1;36m" 
+          << this->metadata_corpus.size()
+          << "\033[0m metadata files and \033[1;36m" 
+          << this->manifest_corpus.size()
+          << "\033[0m manifest list files in the corpus."
+          << std::endl;
+    } else {
+      std::cout << "\033[1;32m[+]\033[0m Loaded \033[1;36m" 
+          << this->input_corpus.size()
+          << "\033[0m files in the corpus."
+          << std::endl;
     }
   }
 
@@ -141,9 +155,7 @@ public:
         delete[] corpus_stat.corpus;
         corpus_stat.corpus = nullptr;
       }
-    }
-
-    else {
+    } else {
       for (auto &corpus_stat : input_corpus) {
         delete[] corpus_stat.corpus;
         corpus_stat.corpus = nullptr;

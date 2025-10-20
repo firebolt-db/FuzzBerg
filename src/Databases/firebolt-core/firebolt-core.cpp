@@ -91,7 +91,7 @@ int8_t FireboltCore::fuzz() {
         return -1;
       }
       status = iceberg_fuzzer.fuzz_manifest_list_structured(
-          this->queries, this->db_url, this->metadata_corpus,
+          this->queries, this->db_url, this->manifest_corpus,
           this->radamsa_output, this->execs, this->curl);
       if (status == -1) {
         return -1;

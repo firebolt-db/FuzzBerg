@@ -38,7 +38,6 @@ uint32_t FileFuzzerBase::seed_generator() {
     }
     std::fclose(f);
   } else {
-    // Seeding without /dev/random
     gen.seed(static_cast<uint32_t>(time(NULL)) ^ getpid() ^ clock());
   }
 
@@ -84,7 +83,7 @@ void FileFuzzerBase::write_radamsa_mutation(char *&buffer,
                                             size_t length) {
   // we check for valid mutated_file_ptr in main()
   ftruncate(fileno(mutated_file_ptr),
-            0); // hopefully less expensive than repeated fopen()
+            0); 
   rewind(mutated_file_ptr);
 
   if (std::fwrite(buffer, 1, length, mutated_file_ptr) == length) {
@@ -121,13 +120,15 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path &path) {
     exit(1);
   }
 
-  /* For fuzzing Iceberg Metadata: we modify necessary fields here
+  /* For fuzzing Iceberg Metadata: modify necessary fields here
   to avoid repeated parsing in hot paths during fuzzing */
 
   if (this->_corpus_info.format.compare("iceberg") == 0 &&
       path.extension() == ".json") {
     nlohmann::json metadata_json;
-    metadata_json = nlohmann::json::parse(input, nullptr, false);
+    // *input is non-null terminated, so specify exact length to read in
+    // nlohmann::json::parse
+    metadata_json = nlohmann::json::parse(input, input + size, nullptr, false);
 
     if (metadata_json.is_discarded() ||
         !(metadata_json.contains("current-snapshot-id"))) {

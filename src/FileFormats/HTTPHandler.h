@@ -37,9 +37,8 @@ public:
   ~HTTPHandler() = default;
 
   CURLcode curlinit(const std::string &db_url);
-  static size_t resp(char *ptr, size_t size, size_t resp_size, void *userdata);
-  bool send_query(CURL *curl_handle, const std::string &query,
-                  const std::string &db_url,
-                  const std::string &auth_token = "");
+  CURLcode send_query(CURL *curl_handle, const std::string &query,
+                      const std::string &db_url,
+                      const std::string &auth_token = "");
 };
 } // namespace fuzzberg
