@@ -210,9 +210,11 @@ int main(int argc, char *argv[]) {
           "  -q, --queries FILE          JSON file containing queries\n"
           "Optional:\n"
           "  -t, --auth TOKEN            Authentication token (JWT)\n"
-          "  -B, --bucket BUCKET_NAME    S3 bucket name for Iceberg (required "
-          "if "
-          "--format=iceberg)\n",
+          "  -B, --bucket BUCKET_NAME    S3 bucket name for Iceberg, or the "
+          "literal\n"
+          "                              \"file\" to write file:// URLs into "
+          "metadata\n"
+          "                              (required if --format=iceberg)\n",
           argv[0]);
       exit(1);
     }

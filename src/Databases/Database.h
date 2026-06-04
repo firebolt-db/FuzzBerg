@@ -84,7 +84,8 @@ public:
   // Load seed corpus
   inline void _load_corpus(std::string &corpus_dir) {
     FileFuzzerBase fuzzer_base;
-    fuzzer_base._corpus_info = {this->file_format, this->s3_bucket};
+    fuzzer_base._corpus_info = {this->file_format, this->s3_bucket,
+                                this->fuzzer_mutation_path};
 
     for (const auto &entry :
          std::filesystem::recursive_directory_iterator(corpus_dir)) {

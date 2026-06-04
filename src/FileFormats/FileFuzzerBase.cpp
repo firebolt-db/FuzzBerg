@@ -155,8 +155,24 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path &path) {
       return (corpus_stat{0, nullptr});
     }
 
-    // Start modifying the JSON object
-    metadata_json["location"] = *this->_corpus_info.s3_bucket;
+    // Start modifying the JSON object. Two backends are supported:
+    //   --bucket file       → write file:// URLs anchored at the
+    //                         fuzzer's local mutation directory.
+    //   --bucket <name>     → write s3://<name>/... URLs (original
+    //                         behavior).
+    // The file:// path matters for in-tree CI runs that don't want a
+    // real or mocked S3 backend.
+    const bool local_mode = (*this->_corpus_info.s3_bucket == "file");
+    const std::string location =
+        local_mode ? ("file://" + this->_corpus_info.local_root)
+                   : *this->_corpus_info.s3_bucket;
+    const std::string manifest_list_url =
+        local_mode
+            ? ("file://" + this->_corpus_info.local_root +
+               "/metadata/manifest_list.avro")
+            : ("s3://" + *this->_corpus_info.s3_bucket +
+               "/metadata/manifest_list.avro");
+    metadata_json["location"] = location;
     if (metadata_json.contains("metadata-log")) {
       metadata_json.erase("metadata-log");
     }
@@ -165,9 +181,7 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path &path) {
     }
     for (auto &snap : metadata_json["snapshots"]) {
       if (snap.is_object()) {
-        snap["manifest-list"] =
-            std::string("s3://" + *this->_corpus_info.s3_bucket +
-                        "/metadata/manifest_list.avro");
+        snap["manifest-list"] = manifest_list_url;
       }
     }
 
