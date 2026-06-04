@@ -30,6 +30,11 @@ namespace fuzzberg {
 
 IcebergFuzzer::IcebergFuzzer(pid_t target_pid,
                              std::string &mutation_file_path) {
+  // Mirror parquet.cpp's ctor: persist the target pid so the
+  // kill(this->_target_pid, SIGKILL) calls in the fuzz_* paths below
+  // signal the forked target, not (with _target_pid == 0) the entire
+  // process group.
+  this->_target_pid = target_pid;
   std::cout << "Starting Iceberg fuzzer: " << mutation_file_path << std::endl;
   mutated_metadata_path = mutation_file_path + "/v3.metadata.json";
   mutated_manifest_list_name = mutation_file_path + "/manifest_list.avro";
@@ -54,6 +59,14 @@ int8_t IcebergFuzzer::fuzz_metadata_random(std::vector<std::string> &queries,
                                            char *&radamsa_buffer, size_t &execs,
                                            CURL *curl,
                                            corpus_buffer &metadata_corpus) {
+  // Guard against empty corpus. _load_corpus silently drops JSONs
+  // missing `current-snapshot-id`; if every input was dropped we'd
+  // otherwise `rand() % 0` → UB (SIGFPE on x86) and abort the fuzzer
+  // mid-run with no useful diagnostic.
+  if (metadata_corpus.empty()) {
+    std::cerr << "iceberg fuzzer: metadata corpus is empty; aborting round\n";
+    return -1;
+  }
 
   auto seed = seed_generator();
   srand(seed);
@@ -166,6 +179,14 @@ int8_t IcebergFuzzer::fuzz_metadata_structured(
       _key = key;
     }
 
+    // Cap the retry loop. The original TODO acknowledged this: if
+    // Radamsa happens to consistently produce JSON that fails to
+    // parse for a particular seed+field combination, the
+    // `goto mutate` retry would spin forever and the fuzz round
+    // would never make progress. 8 attempts is generous; bail to
+    // the next field on the 9th and leave this one unmutated.
+    int mutate_retries = 0;
+    static constexpr int kMaxMutateRetries = 8;
   mutate:
     auto output_size = radamsa(
         reinterpret_cast<uint8_t *>(const_cast<char *>(field_str.c_str())),
@@ -181,8 +202,12 @@ int8_t IcebergFuzzer::fuzz_metadata_structured(
       memset(radamsa_buffer, 0, output_size);
       output_size = 0;
       // try mutating the same field again
-      // TODO: add a retry counter
-      goto mutate;
+      if (++mutate_retries < kMaxMutateRetries) {
+        goto mutate;
+      }
+      // Give up on this field — leave the metadata unchanged and
+      // move on to the next one.
+      continue;
     }
 
     if (rand_ < 5) {
@@ -265,6 +290,14 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
                "*********\033[0m\n\n"
             << std::endl;
 
+  // Same empty-corpus guard as sequence 1. _load_corpus silently
+  // drops non-OBJ1 avro; without this, rand() % 0 SIGFPEs the fuzzer
+  // mid-run when no manifest avro qualified.
+  if (manifest_corpus.empty()) {
+    std::cerr << "iceberg fuzzer: manifest corpus is empty; skipping sequence 3\n";
+    return 0;
+  }
+
   // Write updated metadata file
   if (!new_metadata_file_ptr) {
     std::cerr << "Invalid file for writing metadata" << std::endl;
@@ -281,6 +314,17 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
   auto seed = seed_generator();
   srand(seed);
   size_t rand_manifest = rand() % manifest_corpus.size();
+
+  // Guard against an Avro entry shorter than the 4-byte "OBJ1"
+  // header. Without this, `size - 4` wraps as size_t to ~2^64-1 and
+  // gets passed straight into radamsa() as the input length — OOB
+  // reads + harness instability. Real Avro headers are 4 bytes, so
+  // any shorter entry is malformed; skip the round.
+  if (manifest_corpus[rand_manifest].size < 4) {
+    std::cerr << "iceberg fuzzer: manifest entry " << rand_manifest
+              << " shorter than Avro header (4 bytes); skipping round\n";
+    return 0;
+  }
 
   // Retain "OBJ1" header
   std::memcpy(radamsa_buffer, manifest_corpus[rand_manifest].corpus, 4);

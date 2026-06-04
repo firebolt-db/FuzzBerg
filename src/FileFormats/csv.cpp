@@ -24,6 +24,11 @@
 namespace fuzzberg {
 CSVFuzzer::CSVFuzzer(pid_t target_pid, std::string fuzzer_mutation_path) {
   std::cout << "Entered CSV fuzzer: " << std::endl;
+  // Persist target_pid on the base so the timeout path in Fuzz() can
+  // signal the target via this->_target_pid. The original ctor only
+  // used the local arg and left _target_pid default-initialized — the
+  // SIGKILL on timeout was therefore aimed at pid 0.
+  this->_target_pid = target_pid;
   mutated_file_ptr =
       std::fopen((fuzzer_mutation_path + "/fuzz.csv").c_str(), "wb");
 
@@ -42,6 +47,11 @@ int8_t CSVFuzzer::Fuzz(std::vector<std::string> &queries, std::string &db_url,
                        corpus_buffer &input_corpus, char *&radamsa_buffer,
                        size_t &execs, CURL *curl) {
   srand(seed_generator()); // seeding rand()
+
+  if (input_corpus.empty()) {
+    std::cerr << "csv fuzzer: input corpus is empty; aborting round\n";
+    return -1;
+  }
 
   while (1) {
     size_t rand_ = rand() % input_corpus.size();

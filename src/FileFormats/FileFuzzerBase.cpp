@@ -180,6 +180,10 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path &path) {
     char *updated_metadata = new char[dumped_json.size() + 1];
     memcpy(updated_metadata, dumped_json.data(), dumped_json.size());
     updated_metadata[dumped_json.size()] = '\0'; // Add null terminator
+    // The raw file bytes were owned by `input` (new[]); the rewritten
+    // copy lives in `updated_metadata`. Release `input` here, otherwise
+    // every iceberg metadata corpus entry leaks `size` bytes at startup.
+    delete[] input;
     return (corpus_stat{dumped_json.size(), updated_metadata});
   }
 

@@ -51,6 +51,11 @@ int8_t ParquetFuzzer::Fuzz(std::vector<std::string> &queries,
 
   srand(seed_generator());
 
+  if (input_corpus.empty()) {
+    std::cerr << "parquet fuzzer: input corpus is empty; aborting round\n";
+    return -1;
+  }
+
   char *data_pages = nullptr;
   char *footer_length_field = nullptr;
   char *file_metadata_start = nullptr;
