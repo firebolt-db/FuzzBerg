@@ -21,6 +21,10 @@
 
 #include "FileFuzzerBase.h"
 
+#include <atomic>
+#include <ctime>
+#include <unistd.h>
+
 namespace fuzzberg {
 
 // Generate a random seed
@@ -53,7 +57,20 @@ void FileFuzzerBase::write_crash(char *crash_string, size_t crash_size,
     std::filesystem::create_directories(crash_dir);
   }
   if (_crash_dir.is_directory()) {
-    std::string crash_file = _crash_dir.path().string() + "crash.txt";
+    // Name the artifact `crash-<ts>-<pid>-<n>.bin` so it lands *inside*
+    // the crash dir (use std::filesystem::path::operator/ for the
+    // separator) and matches typical fuzzer-orchestrator `crash-*`
+    // globs. The original `crash_dir.path().string() + "crash.txt"`
+    // concatenated without a separator (so the file landed next to the
+    // dir, not in it) and used a fixed name that orchestrators looking
+    // for `crash-*` artifacts never matched — silently dropping real
+    // crash signals.
+    static std::atomic<unsigned> _crash_counter{0};
+    auto crash_path = _crash_dir.path()
+        / ("crash-" + std::to_string(static_cast<long>(time(nullptr)))
+           + "-" + std::to_string(getpid())
+           + "-" + std::to_string(_crash_counter++) + ".bin");
+    std::string crash_file = crash_path.string();
     FILE *crash_fp = std::fopen(crash_file.c_str(), "w");
     if (crash_fp) {
       if (std::fwrite(crash_string, 1, crash_size, crash_fp) == crash_size) {
