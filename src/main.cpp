@@ -210,9 +210,11 @@ int main(int argc, char *argv[]) {
           "  -q, --queries FILE          JSON file containing queries\n"
           "Optional:\n"
           "  -t, --auth TOKEN            Authentication token (JWT)\n"
-          "  -B, --bucket BUCKET_NAME    S3 bucket name for Iceberg (required "
-          "if "
-          "--format=iceberg)\n",
+          "  -B, --bucket BUCKET_NAME    S3 bucket name for Iceberg, or the "
+          "literal\n"
+          "                              \"file\" to write file:// URLs into "
+          "metadata\n"
+          "                              (required if --format=iceberg)\n",
           argv[0]);
       exit(1);
     }
@@ -307,6 +309,12 @@ int main(int argc, char *argv[]) {
             << std::endl;
   fuzz_target->_load_corpus(corpus_dir);
 
+  // Track whether the cleanup path observed a crash so main() can
+  // propagate it as a non-zero exit. Without this, main always
+  // returned 0 even after detecting a real SIGSEGV/SIGABRT from the
+  // target — orchestrators / CI gating on the exit code never tripped.
+  bool target_crashed = false;
+
   if (sigsetjmp(env, 1) != 0) {
     // jumps to interrupt: from SIGHANDLER
     goto interrupt;
@@ -319,13 +327,47 @@ int main(int argc, char *argv[]) {
   gettimeofday(&t1, NULL);
 fuzz:
   if (fuzz_target->fuzz() == -1) {
+    // When fuzz() returns -1, the target server may either be already
+    // dead (real crash — curl couldn't connect because the engine
+    // SEGV'd / aborted) or still healthy (harness error — empty
+    // corpus, transport hiccup, file-system error). Distinguish via
+    // WNOHANG:
+    //
+    //   * still alive (WNOHANG returns 0) → harness error; SIGKILL the
+    //     target, reap with blocking waitpid, and route past the
+    //     crash-detection logic via the `interrupt` label so we don't
+    //     write a bogus crash artifact for the SIGKILL we sent.
+    //   * already dead (WNOHANG returns child_pid) → real crash;
+    //     feed its status into the crash-detection logic.
+    //   * WNOHANG < 0 (ECHILD) → fall through to cleanup as-is.
+    //
+    // Without this distinguisher the previous behavior (unconditional
+    // blocking waitpid) stalls for the outer timeout budget on harness
+    // errors and masks them as long silent runs.
+    int wn_status = 0;
+    pid_t wn = waitpid(fuzz_target->target_pid, &wn_status, WNOHANG);
+    if (wn == 0) {
+      std::cerr << "fuzz() returned -1 but target still running — "
+                   "treating as harness error, not crash\n";
+      if (fuzz_target->target_pid > 0) {
+        kill(fuzz_target->target_pid, SIGKILL);
+        waitpid(fuzz_target->target_pid, &wn_status, 0);
+      }
+      goto interrupt;
+    }
+    if (wn > 0) {
+      status = wn_status;
+      goto cleanup_inspect;
+    }
     goto cleanup;
   }
 
 cleanup:
   if (waitpid(fuzz_target->target_pid, &status, 0) < 0) {
     std::perror("waitpid failed");
-  } else if (WIFSIGNALED(status)) {
+  }
+cleanup_inspect:
+  if (WIFSIGNALED(status)) {
     int signal = WTERMSIG(status);
     if (signal == SIGSEGV) {
       std::cout << "\nTarget crashed with SIGSEGV\n\n" << std::endl;
@@ -334,10 +376,16 @@ cleanup:
     }
     std::cout << "Writing crash data to: " << crash_dir << "\n\n";
     fuzz_target->_write_crash(fuzz_target->radamsa_output, crash_dir);
-  } else {
+    target_crashed = true;
+  } else if (WIFEXITED(status)) {
+    // WEXITSTATUS is only defined when WIFEXITED is true; reading it
+    // after WIFSIGNALED / WIFSTOPPED is UB. With default waitpid
+    // flags only WIFEXITED or WIFSIGNALED can be true, so this is
+    // mostly a robustness improvement against future option changes.
     if (WEXITSTATUS(status) != 0) {
       std::cout << "Target process exited abnormally\n";
       fuzz_target->_write_crash(fuzz_target->radamsa_output, crash_dir);
+      target_crashed = true;
     }
   }
 
@@ -361,5 +409,5 @@ interrupt:                     // section executed on receiving SIGINT
             << std::setw(2) << hours << "h " << std::setw(2) << minutes << "m "
             << std::setw(2) << seconds << "s" << Reset << "\n\n";
 
-  return 0;
+  return target_crashed ? 1 : 0;
 }

@@ -75,25 +75,37 @@ int8_t FireboltCore::fuzz() {
   else if (file_format == "iceberg") {
     IcebergFuzzer iceberg_fuzzer(this->target_pid, this->fuzzer_mutation_path);
 
+    // Propagate crash_input_size out of the iceberg fuzzer so
+    // _write_crash later writes the actual offending mutation bytes.
+    // Without this, only the parquet path copied crash_input_size
+    // into the DatabaseHandler's crash_size; iceberg's crash
+    // artifacts were always zero-length.
+    auto record_and_return = [&](int8_t status) {
+      if (status == -1) {
+        this->crash_size = iceberg_fuzzer.crash_input_size;
+      }
+      return status;
+    };
+
     // For Iceberg fuzzing, we start the loop here as there is sequential
     // fuzzing logic involved
     while (1) {
       auto status = iceberg_fuzzer.fuzz_metadata_random(
           this->queries, this->db_url, this->radamsa_output, this->execs,
           this->curl, this->metadata_corpus);
-      if (status == -1) {
+      if (record_and_return(status) == -1) {
         return -1;
       }
       status = iceberg_fuzzer.fuzz_metadata_structured(
           this->queries, this->db_url, this->radamsa_output, this->execs,
           this->curl);
-      if (status == -1) {
+      if (record_and_return(status) == -1) {
         return -1;
       }
       status = iceberg_fuzzer.fuzz_manifest_list_structured(
           this->queries, this->db_url, this->manifest_corpus,
           this->radamsa_output, this->execs, this->curl);
-      if (status == -1) {
+      if (record_and_return(status) == -1) {
         return -1;
       }
     }

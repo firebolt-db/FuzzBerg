@@ -21,6 +21,10 @@
 
 #include "FileFuzzerBase.h"
 
+#include <atomic>
+#include <ctime>
+#include <unistd.h>
+
 namespace fuzzberg {
 
 // Generate a random seed
@@ -53,7 +57,20 @@ void FileFuzzerBase::write_crash(char *crash_string, size_t crash_size,
     std::filesystem::create_directories(crash_dir);
   }
   if (_crash_dir.is_directory()) {
-    std::string crash_file = _crash_dir.path().string() + "crash.txt";
+    // Name the artifact `crash-<ts>-<pid>-<n>.bin` so it lands *inside*
+    // the crash dir (use std::filesystem::path::operator/ for the
+    // separator) and matches typical fuzzer-orchestrator `crash-*`
+    // globs. The original `crash_dir.path().string() + "crash.txt"`
+    // concatenated without a separator (so the file landed next to the
+    // dir, not in it) and used a fixed name that orchestrators looking
+    // for `crash-*` artifacts never matched — silently dropping real
+    // crash signals.
+    static std::atomic<unsigned> _crash_counter{0};
+    auto crash_path = _crash_dir.path()
+        / ("crash-" + std::to_string(static_cast<long>(time(nullptr)))
+           + "-" + std::to_string(getpid())
+           + "-" + std::to_string(_crash_counter++) + ".bin");
+    std::string crash_file = crash_path.string();
     FILE *crash_fp = std::fopen(crash_file.c_str(), "w");
     if (crash_fp) {
       if (std::fwrite(crash_string, 1, crash_size, crash_fp) == crash_size) {
@@ -138,8 +155,24 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path &path) {
       return (corpus_stat{0, nullptr});
     }
 
-    // Start modifying the JSON object
-    metadata_json["location"] = *this->_corpus_info.s3_bucket;
+    // Start modifying the JSON object. Two backends are supported:
+    //   --bucket file       → write file:// URLs anchored at the
+    //                         fuzzer's local mutation directory.
+    //   --bucket <name>     → write s3://<name>/... URLs (original
+    //                         behavior).
+    // The file:// path matters for in-tree CI runs that don't want a
+    // real or mocked S3 backend.
+    const bool local_mode = (*this->_corpus_info.s3_bucket == "file");
+    const std::string location =
+        local_mode ? ("file://" + this->_corpus_info.local_root)
+                   : *this->_corpus_info.s3_bucket;
+    const std::string manifest_list_url =
+        local_mode
+            ? ("file://" + this->_corpus_info.local_root +
+               "/metadata/manifest_list.avro")
+            : ("s3://" + *this->_corpus_info.s3_bucket +
+               "/metadata/manifest_list.avro");
+    metadata_json["location"] = location;
     if (metadata_json.contains("metadata-log")) {
       metadata_json.erase("metadata-log");
     }
@@ -148,9 +181,7 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path &path) {
     }
     for (auto &snap : metadata_json["snapshots"]) {
       if (snap.is_object()) {
-        snap["manifest-list"] =
-            std::string("s3://" + *this->_corpus_info.s3_bucket +
-                        "/metadata/manifest_list.avro");
+        snap["manifest-list"] = manifest_list_url;
       }
     }
 
@@ -163,6 +194,10 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path &path) {
     char *updated_metadata = new char[dumped_json.size() + 1];
     memcpy(updated_metadata, dumped_json.data(), dumped_json.size());
     updated_metadata[dumped_json.size()] = '\0'; // Add null terminator
+    // The raw file bytes were owned by `input` (new[]); the rewritten
+    // copy lives in `updated_metadata`. Release `input` here, otherwise
+    // every iceberg metadata corpus entry leaks `size` bytes at startup.
+    delete[] input;
     return (corpus_stat{dumped_json.size(), updated_metadata});
   }
 

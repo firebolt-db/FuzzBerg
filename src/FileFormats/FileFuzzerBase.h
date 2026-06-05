@@ -62,6 +62,11 @@ public:
   struct corpus_info {
     std::string format;
     std::optional<std::string> s3_bucket = std::nullopt;
+    // When set, iceberg load_corpus rewrites the metadata `location`
+    // and manifest-list pointers to point at this local directory
+    // using the `file://` scheme, so the target can drive a fuzzing
+    // round without an object-store backend.
+    std::string local_root;
   } _corpus_info;
 
   size_t execs = 0;            // number of queries executed
