@@ -74,6 +74,16 @@ public:
   std::string _auth_token; // Auth token for the database server (might make
                            // std::optional later)
 
+  // When `add_column_filters` is true, the Iceberg fuzzer synthesizes
+  // one extra `SELECT *` per primitive column in the just-mutated
+  // schema, using `table_expr_for_column_filters` as the FROM clause.
+  // Lets coverage reach the engine's predicate-pushdown / row-group
+  // min/max pruning paths, which the unfiltered scan path never hits.
+  // Plumbed in from queries.json by main.cpp; only the firebolt-core
+  // backend wires it down to IcebergFuzzer today.
+  bool add_column_filters = false;
+  std::string table_expr_for_column_filters;
+
   // Abstract interfaces
   // launches target db (override in derived classes)
   virtual pid_t ForkTarget() = 0;

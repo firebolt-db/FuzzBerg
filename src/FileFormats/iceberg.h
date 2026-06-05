@@ -54,5 +54,44 @@ public:
   FILE *new_metadata_file_ptr = nullptr;
   FILE *new_manifest_file_ptr = nullptr;
   nlohmann::json metadata_json;
+
+  // When non-empty, FuzzBerg synthesizes one additional `SELECT *` per
+  // primitive column in the just-mutated schema and runs it alongside
+  // the user-supplied queries. Each generated query is of the form:
+  //
+  //   SELECT * FROM <table_expr_for_column_filters> WHERE "<col>" <pred>
+  //
+  // where <pred> is a type-appropriate template designed to make the
+  // engine walk row-group min/max stats (range filters on numeric /
+  // temporal, equality/LIKE on strings, presence on boolean/binary).
+  //
+  // Without this, the engine's predicate-pushdown / stats-pruning
+  // code path is never exercised by FuzzBerg — only the unfiltered
+  // scan path is. Enabling it on a per-iteration basis means the
+  // synthesized queries always reference columns that actually exist
+  // in the active mutation's schema (no wasted "column not found"
+  // plan errors).
+  //
+  // Set by `firebolt-core.cpp` from the `queries.json` `table_expr`
+  // key when `add_column_filters: true` is present.
+  std::string table_expr_for_column_filters;
+  bool add_column_filters = false;
+
+private:
+  // Build the per-iteration WHERE-bearing queries from the current
+  // metadata_json (sequence 1/2/3 all leave it as the just-written
+  // schema). Returns an empty vector if `add_column_filters` is off,
+  // the schema can't be located, or no primitive columns are present.
+  std::vector<std::string> buildColumnFilterQueries() const;
+
+  // Send a single query through curl; encapsulates the per-query
+  // bookkeeping (execs++ , timeout-kills-target, crash-size capture)
+  // that was previously duplicated across the three fuzz_* sequences.
+  // Returns CURLE_OK on success, the underlying curl code otherwise.
+  // `crash_size_on_failure` is recorded into crash_input_size if the
+  // send fails for a non-timeout reason.
+  CURLcode sendQueryAndAccount(CURL *curl, const std::string &query,
+                               const std::string &db_url, size_t &execs,
+                               size_t crash_size_on_failure);
 };
 } // namespace fuzzberg

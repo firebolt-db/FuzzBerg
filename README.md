@@ -47,6 +47,14 @@ Mutations are both structure-aware and randomised with [libRadamsa](https://gitl
   - `DatabaseHandler::fuzz()` : call the relevant file-format fuzzer
 - Create a JSON file under `queries/<database>/*.json` listing relevant queries for your target. 
   - Only add queries for file-formats currently supported by the fuzzer (`CSV`, `Parquet`, `Iceberg`).
+  - **Iceberg only**: optionally set `add_column_filters: true` plus a sibling `table_expr` (string) to auto-generate one `SELECT * FROM <table_expr> WHERE "<col>" <type-appropriate-predicate>` per primitive column of the just-mutated schema, *in addition* to the static `queries` list. Exercises the engine's predicate-pushdown / row-group min-max pruning paths, which the unfiltered scan path never hits. Example:
+    ```json
+    {
+      "queries": ["SELECT * FROM READ_ICEBERG(url => 'file:///work/metadata/v3.metadata.json');"],
+      "add_column_filters": true,
+      "table_expr": "READ_ICEBERG(url => 'file:///work/metadata/v3.metadata.json')"
+    }
+    ```
 <br>
 
 ## Build Instructions
