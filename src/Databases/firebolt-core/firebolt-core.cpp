@@ -74,6 +74,12 @@ int8_t FireboltCore::fuzz() {
   // Iceberg Fuzzer
   else if (file_format == "iceberg") {
     IcebergFuzzer iceberg_fuzzer(this->target_pid, this->fuzzer_mutation_path);
+    // Plumb optional per-iteration column-filter generation through to
+    // the fuzzer. Off by default; enabled via `add_column_filters: true`
+    // in queries.json (see main.cpp).
+    iceberg_fuzzer.add_column_filters = this->add_column_filters;
+    iceberg_fuzzer.table_expr_for_column_filters =
+        this->table_expr_for_column_filters;
 
     // Propagate crash_input_size out of the iceberg fuzzer so
     // _write_crash later writes the actual offending mutation bytes.

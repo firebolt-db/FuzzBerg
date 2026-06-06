@@ -53,6 +53,122 @@ IcebergFuzzer::IcebergFuzzer(pid_t target_pid,
   radamsa_init();
 }
 
+namespace {
+
+// Quote a SQL identifier per ANSI: wrap in double-quotes, double any
+// internal double-quote. Belt-and-suspenders against weird column
+// names that may appear in mutated schemas.
+std::string quoteIdent(const std::string &name) {
+  std::string out;
+  out.reserve(name.size() + 2);
+  out.push_back('"');
+  for (char c : name) {
+    if (c == '"') out.push_back('"');
+    out.push_back(c);
+  }
+  out.push_back('"');
+  return out;
+}
+
+// One type-appropriate predicate per Iceberg primitive type. Designed
+// to land on the planner's predicate-pushdown / row-group min-max
+// pruning paths:
+//   * range filters on numeric/temporal → min/max walk
+//   * equality/LIKE on string           → dict + truncated-stats
+//   * presence on boolean / fallback    → null-bitmap walk
+// Values are small constants chosen to be in-domain without depending
+// on real seed-data distribution.
+std::string predicateFor(const std::string &quoted_col,
+                         const std::string &type) {
+  if (type == "int" || type == "long")     return quoted_col + " > 0";
+  if (type == "float" || type == "double") return quoted_col + " > 0.0";
+  if (type == "string")                    return quoted_col + " = 'a'";
+  if (type == "boolean")                   return quoted_col;
+  if (type == "date")                      return quoted_col + " > DATE '2000-01-01'";
+  if (type.rfind("timestamp", 0) == 0)     return quoted_col + " > TIMESTAMP '2000-01-01 00:00:00'";
+  if (type.rfind("decimal", 0) == 0)       return quoted_col + " > 0";
+  return quoted_col + " IS NOT NULL";
+}
+
+// Locate the active schema in an Iceberg metadata JSON. v1 puts it
+// inline at `schema`; v2/v3 use `schemas` keyed by `current-schema-id`.
+// Returns nullptr if no usable schema can be found (malformed mutation,
+// missing keys, etc.) — caller treats that as "no filters this round".
+const nlohmann::json *findCurrentSchema(const nlohmann::json &meta) {
+  if (meta.contains("schemas") && meta["schemas"].is_array() &&
+      !meta["schemas"].empty()) {
+    int cur_id = -1;
+    if (meta.contains("current-schema-id") &&
+        meta["current-schema-id"].is_number_integer()) {
+      cur_id = meta["current-schema-id"].get<int>();
+    }
+    for (const auto &s : meta["schemas"]) {
+      if (s.is_object() && s.contains("schema-id") &&
+          s["schema-id"].is_number_integer() &&
+          s["schema-id"].get<int>() == cur_id) {
+        return &s;
+      }
+    }
+    // Fall back to the first schema if no exact match — happens for v1
+    // metadata pulled into a v2-shaped corpus, plus mutations that
+    // scramble current-schema-id away from any real entry.
+    if (meta["schemas"][0].is_object()) {
+      return &meta["schemas"][0];
+    }
+  }
+  if (meta.contains("schema") && meta["schema"].is_object()) {
+    return &meta["schema"];
+  }
+  return nullptr;
+}
+
+} // namespace
+
+std::vector<std::string> IcebergFuzzer::buildColumnFilterQueries() const {
+  std::vector<std::string> out;
+  if (!add_column_filters || table_expr_for_column_filters.empty()) {
+    return out;
+  }
+  const nlohmann::json *schema = findCurrentSchema(metadata_json);
+  if (!schema || !schema->contains("fields") ||
+      !(*schema)["fields"].is_array()) {
+    return out;
+  }
+  for (const auto &f : (*schema)["fields"]) {
+    if (!f.is_object()) continue;
+    // Primitive Iceberg types come through as strings ("int", "long",
+    // "string", "decimal(P,S)", "timestamp", ...). Complex types
+    // (struct/list/map) come through as objects — skip those, they
+    // can't be filter-predicated directly.
+    if (!f.contains("name") || !f["name"].is_string()) continue;
+    if (!f.contains("type") || !f["type"].is_string()) continue;
+    const std::string col = f["name"].get<std::string>();
+    const std::string type = f["type"].get<std::string>();
+    out.push_back("SELECT * FROM " + table_expr_for_column_filters +
+                  " WHERE " + predicateFor(quoteIdent(col), type) + ";");
+  }
+  return out;
+}
+
+CURLcode IcebergFuzzer::sendQueryAndAccount(CURL *curl,
+                                             const std::string &query,
+                                             const std::string &db_url,
+                                             size_t &execs,
+                                             size_t crash_size_on_failure) {
+  execs++;
+  std::cout << "\nQuery : " << query << std::endl;
+  auto rc = send_query(curl, query, db_url, "");
+  if (rc != CURLE_OK) {
+    if (rc == CURLE_OPERATION_TIMEDOUT) {
+      std::cerr << "Target timed out, kill child and stop fuzzing" << std::endl;
+      kill(this->_target_pid, SIGKILL);
+      exit(1);
+    }
+    crash_input_size = crash_size_on_failure;
+  }
+  return rc;
+}
+
 // Sequence 1
 int8_t IcebergFuzzer::fuzz_metadata_random(std::vector<std::string> &queries,
                                            std::string &db_url,
@@ -89,25 +205,24 @@ int8_t IcebergFuzzer::fuzz_metadata_random(std::vector<std::string> &queries,
                "*********\033[0m\n\n"
             << std::endl;
 
+  // User-supplied queries first, then per-iteration column-filter
+  // queries derived from the mutated schema. The latter list is empty
+  // when add_column_filters is off, or when the mutation produced an
+  // unparseable / schema-less metadata (sequence 1 mutates raw bytes).
   for (auto const &query : queries) {
-    execs++;
-    std::cout << "\nQuery : " << query << std::endl;
-    auto return_code = send_query(curl, query, db_url, "");
-    if (return_code != CURLE_OK) {
-      if (return_code == CURLE_OPERATION_TIMEDOUT){
-          std::cerr << "Target timed out, kill child and stop fuzzing"
-                    << std::endl;
-          kill(this->_target_pid, SIGKILL);
-          exit(1);
-        }
-
-      // save size of the crash file
-      crash_input_size = output_size;
+    if (sendQueryAndAccount(curl, query, db_url, execs, output_size) !=
+        CURLE_OK) {
       std::fclose(new_metadata_file_ptr);
       std::fclose(new_manifest_file_ptr);
       return -1;
-    } else {
-      continue;
+    }
+  }
+  for (auto const &query : buildColumnFilterQueries()) {
+    if (sendQueryAndAccount(curl, query, db_url, execs, output_size) !=
+        CURLE_OK) {
+      std::fclose(new_metadata_file_ptr);
+      std::fclose(new_manifest_file_ptr);
+      return -1;
     }
   }
   // clear the buffer for next iteration
@@ -249,27 +364,24 @@ int8_t IcebergFuzzer::fuzz_metadata_structured(
     write_radamsa_mutation(metadata_mutated_structured, new_metadata_file_ptr,
                            strlen(metadata_mutated_structured));
 
-    // send query
+    // User-supplied queries first, then column-filter queries derived
+    // from the active (mutated) schema. Sequence 2's mutation targets
+    // one field at a time and keeps the rest of metadata_json intact,
+    // so the filters reliably reference live columns.
     for (auto const &query : queries) {
-      execs++;
-      std::cout << "\nQuery : "
-                << " " << query << "\n"
-                << std::endl;
-      auto return_code = send_query(curl, query, db_url, "");
-      if (return_code != CURLE_OK) {
-        if (return_code == CURLE_OPERATION_TIMEDOUT){
-          std::cerr << "Target timed out, kill child and stop fuzzing"
-                    << std::endl;
-          kill(this->_target_pid, SIGKILL);
-          exit(1);
-        }
-        // save size of the crash file
-        crash_input_size = output_size;
+      if (sendQueryAndAccount(curl, query, db_url, execs, output_size) !=
+          CURLE_OK) {
         std::fclose(new_metadata_file_ptr);
         std::fclose(new_manifest_file_ptr);
         return -1;
-      } else {
-        continue;
+      }
+    }
+    for (auto const &query : buildColumnFilterQueries()) {
+      if (sendQueryAndAccount(curl, query, db_url, execs, output_size) !=
+          CURLE_OK) {
+        std::fclose(new_metadata_file_ptr);
+        std::fclose(new_manifest_file_ptr);
+        return -1;
       }
     }
     // restore original key value
@@ -408,25 +520,24 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
   write_radamsa_mutation(radamsa_buffer, new_manifest_file_ptr,
                          output_size + 4);
 
-  // send query
+  // User-supplied queries first, then column-filter queries derived
+  // from the metadata's current schema. Sequence 3 rewrites metadata
+  // from metadata_json (kept intact across iterations) and mutates
+  // only the manifest-list Avro, so the filters always match.
   for (auto const &query : queries) {
-    execs++;
-    std::cout << "\nQuery : " << " " << query << "\n" << std::endl;
-    auto return_code = send_query(curl, query, db_url, "");
-    if (return_code != CURLE_OK) {
-      if (return_code == CURLE_OPERATION_TIMEDOUT){
-          std::cerr << "Target timed out, kill child and stop fuzzing"
-                    << std::endl;
-          kill(this->_target_pid, SIGKILL);
-          exit(1);
-        }
-      // save size of the crash file
-      crash_input_size = output_size;
+    if (sendQueryAndAccount(curl, query, db_url, execs, output_size) !=
+        CURLE_OK) {
       std::fclose(new_metadata_file_ptr);
       std::fclose(new_manifest_file_ptr);
       return -1;
-    } else {
-      continue;
+    }
+  }
+  for (auto const &query : buildColumnFilterQueries()) {
+    if (sendQueryAndAccount(curl, query, db_url, execs, output_size) !=
+        CURLE_OK) {
+      std::fclose(new_metadata_file_ptr);
+      std::fclose(new_manifest_file_ptr);
+      return -1;
     }
   }
   memset(radamsa_buffer, 0, output_size);

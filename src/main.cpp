@@ -301,8 +301,35 @@ int main(int argc, char *argv[]) {
   for (const auto &query : queries_json["queries"]) {
     fuzz_target->queries.push_back(query.get<std::string>());
   }
-  std::cout << "\n" << Green << "[INFO] Loaded " << fuzz_target->queries.size() 
+  std::cout << "\n" << Green << "[INFO] Loaded " << fuzz_target->queries.size()
             << " queries from: " << Reset << queries << "\n" << std::endl;
+
+  // Optional: per-iteration column-filter queries. When `add_column_filters`
+  // is true in queries.json, the Iceberg fuzzer also runs one
+  // `SELECT * FROM <table_expr> WHERE "<col>" <type-appropriate-predicate>`
+  // per primitive column of the just-mutated schema, on top of the static
+  // list above. Requires a sibling `table_expr` key (string) — the FROM
+  // clause for the synthesized queries. Tolerates older queries.json files
+  // that don't define either key.
+  if (queries_json.contains("add_column_filters") &&
+      queries_json["add_column_filters"].is_boolean() &&
+      queries_json["add_column_filters"].get<bool>()) {
+    if (!queries_json.contains("table_expr") ||
+        !queries_json["table_expr"].is_string() ||
+        queries_json["table_expr"].get<std::string>().empty()) {
+      std::cerr << "Error: queries.json sets `add_column_filters: true` but "
+                   "is missing a non-empty string `table_expr` key — that's "
+                   "the FROM expression the synthesized WHERE queries are "
+                   "anchored to.\n";
+      exit(1);
+    }
+    fuzz_target->add_column_filters = true;
+    fuzz_target->table_expr_for_column_filters =
+        queries_json["table_expr"].get<std::string>();
+    std::cout << Green << "[INFO] add_column_filters enabled; table_expr: "
+              << Reset << fuzz_target->table_expr_for_column_filters << "\n"
+              << std::endl;
+  }
 
   // Load seed corpus
   std::cout << "Loading seed corpus from: " << corpus_dir << "\n"
