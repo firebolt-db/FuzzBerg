@@ -89,7 +89,8 @@ int main(int argc, char *argv[]) {
   std::string auth_token;           // optional auth token for target db server
   std::string format;               // file format to fuzz
   std::string db_url;               // URL for target db server
-  std::string s3_bucket;            // S3 bucket name for Iceberg
+  std::string iceberg_location;     // Iceberg table location: bare bucket,
+                                    // s3://bucket, or file:///abs/path
   std::string database; // database name to fuzz (initializes the corresponding
                         // target class)
   std::string queries;  // path to JSON file containing queries to execute
@@ -165,7 +166,7 @@ int main(int argc, char *argv[]) {
       break;
     case 'B':
       if (optarg) {
-        s3_bucket = optarg;
+        iceberg_location = optarg;
       }
       break;
     case 'f':
@@ -210,9 +211,14 @@ int main(int argc, char *argv[]) {
           "  -q, --queries FILE          JSON file containing queries\n"
           "Optional:\n"
           "  -t, --auth TOKEN            Authentication token (JWT)\n"
-          "  -B, --bucket BUCKET_NAME    S3 bucket name for Iceberg (required "
-          "if "
-          "--format=iceberg)\n",
+          "  -B, --bucket LOCATION       Iceberg table location (required if "
+          "--format=iceberg). Accepts:\n"
+          "                                bare bucket name (legacy S3),\n"
+          "                                s3://<bucket>, or\n"
+          "                                file:///abs/path (local fuzzing; "
+          "should match --mutate dir).\n"
+          "                              Available in query templates as "
+          "${FUZZ_URL}.\n",
           argv[0]);
       exit(1);
     }
@@ -258,13 +264,14 @@ int main(int argc, char *argv[]) {
   } else if (format == "parquet") {
     fuzz_target->file_format = "parquet";
   } else if (format == "iceberg") {
-    if (s3_bucket.empty()) {
+    if (iceberg_location.empty()) {
       std::cerr << "Error: --bucket (-B) must be provided when using "
-                   "--format=iceberg\n";
+                   "--format=iceberg (bare bucket, s3://bucket, or "
+                   "file:///abs/path)\n";
       exit(1);
     }
     fuzz_target->file_format = "iceberg";
-    fuzz_target->s3_bucket = s3_bucket;
+    fuzz_target->s3_bucket = iceberg_location;
   } else {
     std::cerr << "Allowed options (lower case only): csv, parquet, iceberg\n\n";
     exit(1);
@@ -296,8 +303,25 @@ int main(int argc, char *argv[]) {
   }
   query_file.close();
 
+  // Expand ${FUZZ_URL} placeholder so the same query file works for S3 and
+  // file:// fuzzing. A bare bucket is normalized to s3://<bucket> for
+  // substitution; the raw value is still passed to the fuzzer for legacy
+  // load_corpus behavior.
+  const std::string placeholder = "${FUZZ_URL}";
+  std::string fuzz_url = iceberg_location;
+  if (!fuzz_url.empty() && fuzz_url.rfind("s3://", 0) != 0 &&
+      fuzz_url.rfind("file://", 0) != 0) {
+    fuzz_url = "s3://" + fuzz_url;
+  }
   for (const auto &query : queries_json["queries"]) {
-    fuzz_target->queries.push_back(query.get<std::string>());
+    std::string q = query.get<std::string>();
+    if (!fuzz_url.empty()) {
+      for (size_t pos = q.find(placeholder); pos != std::string::npos;
+           pos = q.find(placeholder, pos + fuzz_url.size())) {
+        q.replace(pos, placeholder.size(), fuzz_url);
+      }
+    }
+    fuzz_target->queries.push_back(std::move(q));
   }
   std::cout << "\n" << Green << "[INFO] Loaded " << fuzz_target->queries.size() 
             << " queries from: " << Reset << queries << "\n" << std::endl;

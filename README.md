@@ -29,7 +29,7 @@ For more details about the internals, you can read the [official blog](https://w
 - No need to write/maintain unit-level harnesses
 - Currently supported formats: `Iceberg`, `CSV`, `Parquet`
  - Easily extensible for new targets and file-formats
-  > **Note:** Iceberg fuzzing is currently supported for S3-based readers only. Use a compatible S3 interface such as [Minio](https://www.min.io/) to fuzz on Linux platforms.
+  > **Note:** Iceberg fuzzing supports both S3-based readers (use an interface such as [Minio](https://www.min.io/) on Linux) and local `file://` reads. For `file://`, the mutated metadata is read directly from disk — no S3 layer required.
 
 
 Mutations are both structure-aware and randomised with [libRadamsa](https://gitlab.com/akihe/radamsa) (no coverage guidance), seeded by a [Mersenne Twister](https://github.com/ESultanik/mtwister) PRNG.
@@ -89,7 +89,11 @@ Required:
   -q, --queries FILE          JSON file containing queries (see queries/<database>/*.json)
 Optional:
   -t, --auth TOKEN            Authentication token (JWT)
-  -B, --bucket BUCKET_NAME    S3 bucket name for Iceberg (required if --format=iceberg)
+  -B, --bucket LOCATION       Iceberg table location (required if --format=iceberg).
+                              Accepts: bare bucket name (legacy S3),
+                                       s3://<bucket>, or
+                                       file:///abs/path (local fuzzing; should match --mutate dir).
+                              Available in query templates as ${FUZZ_URL}.
 ```
 
 <br>
@@ -113,6 +117,26 @@ Optional:
   -q fb_core_iceberg.json \
   -b ./firebolt-core
 ```
+
+#### Local-file mode (no S3/Minio required):
+
+```sh
+mkdir -p /tmp/fuzzberg-iceberg/metadata
+./fuzzberg \
+  -i ./corpus_iceberg \
+  -o ./crash \
+  --database=firebolt \
+  --bucket file:///tmp/fuzzberg-iceberg \
+  --format=iceberg \
+  --url=http://localhost:3473 \
+  -m /tmp/fuzzberg-iceberg/metadata \
+  -q fb_core_iceberg.json \
+  -b ./firebolt-core
+```
+
+The same `fb_core_iceberg.json` works for both modes — the query uses `${FUZZ_URL}` which is substituted from `--bucket`. In local-file mode, `--bucket file:///PATH` is the table base and `--mutate PATH/metadata` is the directory mutated files land in; this mirrors the conventional Iceberg `<table>/metadata/<files>` layout so PackDB's relative-path resolution finds `metadata/manifest_list.avro` from the metadata URL.
+
+> **Corpus note (file:// mode):** the manifest-list Avro files in your seed corpus should contain **relative** `manifest_path` entries (and underlying manifests should reference relative `file_path` entries), or sequence-3 manifest-list fuzzing will produce dangling references. The portable fixture at `tests/sql/testdata/iceberg/local_file_fixture/` is a good source — its `generate.py` produces fully-relative metadata.
 
 #### Sample output:
 ```

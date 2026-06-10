@@ -1,5 +1,5 @@
 {
   "queries": [
-    "SELECT * FROM READ_ICEBERG(url => 's3://iceberg-fuzzing/metadata/v3.metadata.json');"
+    "SELECT * FROM READ_ICEBERG(url => '${FUZZ_URL}/metadata/v3.metadata.json');"
   ]
 }

@@ -69,8 +69,12 @@ public:
   std::vector<char *> execv_args;   // args to launch target binary
   std::string db_url;               // database URL
   std::string fuzzer_mutation_path; // path to dir to write file mutations
-  std::optional<std::string>
-      s3_bucket;           // S3 bucket (optional, only for Iceberg fuzzing)
+  // Iceberg location prefix. Accepts:
+  //   - bare bucket name (e.g. "iceberg-fuzzing") — legacy S3 mode
+  //   - "s3://<bucket>"                            — S3 mode
+  //   - "file:///abs/path"                         — local-file mode (table
+  //     base is the directory; should match --mutate path)
+  std::optional<std::string> s3_bucket;
   std::string _auth_token; // Auth token for the database server (might make
                            // std::optional later)
 

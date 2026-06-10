@@ -139,7 +139,24 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path &path) {
     }
 
     // Start modifying the JSON object
-    metadata_json["location"] = *this->_corpus_info.s3_bucket;
+    const std::string &loc = *this->_corpus_info.s3_bucket;
+    const bool is_file = loc.rfind("file://", 0) == 0;
+    // PackDB resolves Iceberg-internal paths relative to the metadata URL's
+    // directory, so file:// fuzzing uses relative paths and lets the table
+    // base float to wherever the mutated metadata is written.
+    std::string location_field;
+    std::string manifest_list_field;
+    if (is_file) {
+      location_field = ".";
+      manifest_list_field = "metadata/manifest_list.avro";
+    } else {
+      const std::string bucket =
+          loc.rfind("s3://", 0) == 0 ? loc.substr(5) : loc;
+      location_field = bucket;
+      manifest_list_field = "s3://" + bucket + "/metadata/manifest_list.avro";
+    }
+
+    metadata_json["location"] = location_field;
     if (metadata_json.contains("metadata-log")) {
       metadata_json.erase("metadata-log");
     }
@@ -148,9 +165,7 @@ corpus_stat FileFuzzerBase::load_corpus(const std::filesystem::path &path) {
     }
     for (auto &snap : metadata_json["snapshots"]) {
       if (snap.is_object()) {
-        snap["manifest-list"] =
-            std::string("s3://" + *this->_corpus_info.s3_bucket +
-                        "/metadata/manifest_list.avro");
+        snap["manifest-list"] = manifest_list_field;
       }
     }
 
