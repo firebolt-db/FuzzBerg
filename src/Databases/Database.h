@@ -94,8 +94,10 @@ public:
   // Load seed corpus
   inline void _load_corpus(std::string &corpus_dir) {
     FileFuzzerBase fuzzer_base;
-    fuzzer_base._corpus_info = {this->file_format, this->s3_bucket,
-                                this->fuzzer_mutation_path};
+    // local_root is the table root; the URL builder appends "/metadata/...".
+    fuzzer_base._corpus_info = {
+        this->file_format, this->s3_bucket,
+        std::filesystem::path(this->fuzzer_mutation_path).parent_path().string()};
 
     for (const auto &entry :
          std::filesystem::recursive_directory_iterator(corpus_dir)) {
