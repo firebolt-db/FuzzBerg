@@ -49,8 +49,22 @@ public:
                                        char *&radamsa_buffer, size_t &execs,
                                        CURL *curl);
 
-  std::string mutated_metadata_path;
+  // Never overwrite a file the target has read. Iceberg files are immutable, and the target
+  // caches by path: a manifest list's size, and file bytes by (path, byte range) -- file:// has
+  // no etag. A file rewritten in place is read with a stale size, or a same-length mutation is
+  // served the previous bytes. So every metadata and manifest-list mutation gets a fresh file
+  // (the previous one is removed), the seeds are never written, and each query is pointed at
+  // the current metadata file.
+  std::string mutation_dir;
+  std::string seed_metadata_path;     // what the queries name
+  std::string mutated_metadata_path;  // the current metadata mutation
+  size_t metadata_generation = 0;
+  size_t manifest_list_generation = 0;
   std::string mutated_manifest_list_name;
+  std::string metadata_file(size_t generation) const;
+  void next_metadata_file();
+  std::string manifest_list_file(size_t generation) const;
+  std::string manifest_list_url(const std::string &file) const;
   FILE *new_metadata_file_ptr = nullptr;
   FILE *new_manifest_file_ptr = nullptr;
   nlohmann::json metadata_json;
