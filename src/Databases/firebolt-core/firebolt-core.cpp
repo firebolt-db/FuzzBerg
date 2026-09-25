@@ -74,6 +74,9 @@ int8_t FireboltCore::fuzz() {
   // Iceberg Fuzzer
   else if (file_format == "iceberg") {
     IcebergFuzzer iceberg_fuzzer(this->target_pid, this->fuzzer_mutation_path);
+    // Sequence 3 points snapshots at each new manifest list with the same
+    // URL scheme the corpus loader used.
+    iceberg_fuzzer._corpus_info = corpus_info();
     // Plumb optional per-iteration column-filter generation through to
     // the fuzzer. Off by default; enabled via `add_column_filters: true`
     // in queries.json (see main.cpp).

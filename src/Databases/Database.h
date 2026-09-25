@@ -91,15 +91,20 @@ public:
   // calls a file-format fuzzer (override in derived classes)
   virtual int8_t fuzz() = 0;
 
-  // Load seed corpus
-  inline void _load_corpus(std::string &corpus_dir) {
-    FileFuzzerBase fuzzer_base;
-    // local_root is the table root; the URL builder appends "/metadata/...".
+  // Where rewritten Iceberg URLs point: the bucket, or with bucket "file" the
+  // local table root (URL builders append "/metadata/...").
+  inline FileFuzzerBase::corpus_info corpus_info() const {
     std::filesystem::path metadata_dir(this->fuzzer_mutation_path);
     if (!metadata_dir.has_filename()) // tolerate a trailing separator
       metadata_dir = metadata_dir.parent_path();
-    fuzzer_base._corpus_info = {this->file_format, this->s3_bucket,
-                                metadata_dir.parent_path().string()};
+    return {this->file_format, this->s3_bucket,
+            metadata_dir.parent_path().string()};
+  }
+
+  // Load seed corpus
+  inline void _load_corpus(std::string &corpus_dir) {
+    FileFuzzerBase fuzzer_base;
+    fuzzer_base._corpus_info = corpus_info();
 
     for (const auto &entry :
          std::filesystem::recursive_directory_iterator(corpus_dir)) {

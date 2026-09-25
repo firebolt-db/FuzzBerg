@@ -26,7 +26,26 @@
 // Sequence 2: Mutate every field value in same metadata seed
 // Sequence 3: Mutate Avro based manifest list, but use original metadata seed
 
+#include <cstdio>
+#include <fcntl.h>
+#include <filesystem>
+
 namespace fuzzberg {
+
+namespace {
+
+// fopen would create the file 0666 (less umask); the target only needs to read it.
+FILE *create_mutation_file(const std::string &path) {
+  const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd < 0)
+    return nullptr;
+  FILE *f = fdopen(fd, "wb");
+  if (!f)
+    close(fd);
+  return f;
+}
+
+} // namespace
 
 IcebergFuzzer::IcebergFuzzer(pid_t target_pid,
                              std::string &mutation_file_path) {
@@ -36,11 +55,13 @@ IcebergFuzzer::IcebergFuzzer(pid_t target_pid,
   // process group.
   this->_target_pid = target_pid;
   std::cout << "Starting Iceberg fuzzer: " << mutation_file_path << std::endl;
-  mutated_metadata_path = mutation_file_path + "/v3.metadata.json";
-  mutated_manifest_list_name = mutation_file_path + "/manifest_list.avro";
+  mutation_dir = mutation_file_path;
+  seed_metadata_path = mutation_file_path + "/v3.metadata.json";
+  mutated_metadata_path = metadata_file(metadata_generation);
+  mutated_manifest_list_name = manifest_list_file(manifest_list_generation);
 
-  new_metadata_file_ptr = std::fopen(mutated_metadata_path.c_str(), "wb");
-  new_manifest_file_ptr = std::fopen(mutated_manifest_list_name.c_str(), "wb");
+  new_metadata_file_ptr = create_mutation_file(mutated_metadata_path);
+  new_manifest_file_ptr = create_mutation_file(mutated_manifest_list_name);
 
   if (!new_manifest_file_ptr || !new_metadata_file_ptr) {
     std::cerr << "Could not create or open files for writing metadata and "
@@ -51,6 +72,35 @@ IcebergFuzzer::IcebergFuzzer(pid_t target_pid,
     exit(1);
   }
   radamsa_init();
+}
+
+std::string IcebergFuzzer::metadata_file(size_t generation) const {
+  // Each mutation is a new metadata version, vN.metadata.json: the target only reads a URL as a
+  // metadata file when its name has that shape. N starts at 100, clear of the seed v3.
+  return mutation_dir + "/v" + std::to_string(100 + generation) + ".metadata.json";
+}
+
+void IcebergFuzzer::next_metadata_file() {
+  std::fclose(new_metadata_file_ptr);
+  std::remove(mutated_metadata_path.c_str());
+  mutated_metadata_path = metadata_file(++metadata_generation);
+  new_metadata_file_ptr = create_mutation_file(mutated_metadata_path);
+  if (!new_metadata_file_ptr) {
+    perror("fopen");
+    exit(1);
+  }
+}
+
+std::string IcebergFuzzer::manifest_list_file(size_t generation) const {
+  return mutation_dir + "/manifest_list-" + std::to_string(generation) + ".avro";
+}
+
+std::string IcebergFuzzer::manifest_list_url(const std::string &file) const {
+  const std::string name = std::filesystem::path(file).filename().string();
+  if (this->_corpus_info.s3_bucket && *this->_corpus_info.s3_bucket == "file") {
+    return "file://" + this->_corpus_info.local_root + "/metadata/" + name;
+  }
+  return "s3://" + this->_corpus_info.s3_bucket.value_or("") + "/metadata/" + name;
 }
 
 namespace {
@@ -156,8 +206,19 @@ CURLcode IcebergFuzzer::sendQueryAndAccount(CURL *curl,
                                              size_t &execs,
                                              size_t crash_size_on_failure) {
   execs++;
-  std::cout << "\nQuery : " << query << std::endl;
-  auto rc = send_query(curl, query, db_url, "");
+  // Queries name the seed metadata file, by local path or by its URL in the
+  // bucket; the mutation sits next to it, so swap the file name only.
+  const std::string seed_name =
+      "/" + std::filesystem::path(seed_metadata_path).filename().string();
+  const std::string mutation_name =
+      "/" + std::filesystem::path(mutated_metadata_path).filename().string();
+  std::string current = query;
+  for (size_t pos = current.find(seed_name); pos != std::string::npos;
+       pos = current.find(seed_name, pos + mutation_name.size())) {
+    current.replace(pos, seed_name.size(), mutation_name);
+  }
+  std::cout << "\nQuery : " << current << std::endl;
+  auto rc = send_query(curl, current, db_url, "");
   if (rc != CURLE_OK) {
     if (rc == CURLE_OPERATION_TIMEDOUT) {
       std::cerr << "Target timed out, kill child and stop fuzzing" << std::endl;
@@ -199,6 +260,7 @@ int8_t IcebergFuzzer::fuzz_metadata_random(std::vector<std::string> &queries,
                              reinterpret_cast<uint8_t *>(radamsa_buffer),
                              RADAMSA_BUFFER_SIZE, seed);
 
+  next_metadata_file();
   write_radamsa_mutation(radamsa_buffer, new_metadata_file_ptr, output_size);
 
   std::cout << "\n\n\033[1;36m********* Starting generic metadata fuzzing "
@@ -361,6 +423,7 @@ int8_t IcebergFuzzer::fuzz_metadata_structured(
               << "Mutated Value: \033[1;31m" << radamsa_buffer << "\033[0m\n"
               << std::endl;
 
+    next_metadata_file();
     write_radamsa_mutation(metadata_mutated_structured, new_metadata_file_ptr,
                            strlen(metadata_mutated_structured));
 
@@ -410,6 +473,24 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
     return 0;
   }
 
+  // This round's mutant goes to a fresh file; the previous one is dropped.
+  std::fclose(new_manifest_file_ptr);
+  std::remove(mutated_manifest_list_name.c_str());
+  mutated_manifest_list_name = manifest_list_file(++manifest_list_generation);
+  new_manifest_file_ptr = create_mutation_file(mutated_manifest_list_name);
+  if (!new_manifest_file_ptr) {
+    perror("fopen");
+    exit(1);
+  }
+  if (this->metadata_json.contains("snapshots") &&
+      this->metadata_json["snapshots"].is_array()) {
+    for (auto &snap : this->metadata_json["snapshots"]) {
+      if (snap.is_object()) {
+        snap["manifest-list"] = manifest_list_url(mutated_manifest_list_name);
+      }
+    }
+  }
+
   // Write updated metadata file
   if (!new_metadata_file_ptr) {
     std::cerr << "Invalid file for writing metadata" << std::endl;
@@ -417,6 +498,7 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
   }
   std::string metadata_str = this->metadata_json.dump(
       -1, ' ', false, nlohmann::json::error_handler_t::replace);
+  next_metadata_file();
   ftruncate(fileno(new_metadata_file_ptr), 0);
   rewind(new_metadata_file_ptr);
   std::fwrite(metadata_str.c_str(), 1, metadata_str.size(),
