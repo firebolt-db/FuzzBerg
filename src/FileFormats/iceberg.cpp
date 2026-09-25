@@ -27,9 +27,25 @@
 // Sequence 3: Mutate Avro based manifest list, but use original metadata seed
 
 #include <cstdio>
+#include <fcntl.h>
 #include <filesystem>
 
 namespace fuzzberg {
+
+namespace {
+
+// fopen would create the file 0666 (less umask); the target only needs to read it.
+FILE *create_mutation_file(const std::string &path) {
+  const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd < 0)
+    return nullptr;
+  FILE *f = fdopen(fd, "wb");
+  if (!f)
+    close(fd);
+  return f;
+}
+
+} // namespace
 
 IcebergFuzzer::IcebergFuzzer(pid_t target_pid,
                              std::string &mutation_file_path) {
@@ -44,8 +60,8 @@ IcebergFuzzer::IcebergFuzzer(pid_t target_pid,
   mutated_metadata_path = metadata_file(metadata_generation);
   mutated_manifest_list_name = manifest_list_file(manifest_list_generation);
 
-  new_metadata_file_ptr = std::fopen(mutated_metadata_path.c_str(), "wb");
-  new_manifest_file_ptr = std::fopen(mutated_manifest_list_name.c_str(), "wb");
+  new_metadata_file_ptr = create_mutation_file(mutated_metadata_path);
+  new_manifest_file_ptr = create_mutation_file(mutated_manifest_list_name);
 
   if (!new_manifest_file_ptr || !new_metadata_file_ptr) {
     std::cerr << "Could not create or open files for writing metadata and "
@@ -68,7 +84,7 @@ void IcebergFuzzer::next_metadata_file() {
   std::fclose(new_metadata_file_ptr);
   std::remove(mutated_metadata_path.c_str());
   mutated_metadata_path = metadata_file(++metadata_generation);
-  new_metadata_file_ptr = std::fopen(mutated_metadata_path.c_str(), "wb");
+  new_metadata_file_ptr = create_mutation_file(mutated_metadata_path);
   if (!new_metadata_file_ptr) {
     perror("fopen");
     exit(1);
@@ -190,11 +206,16 @@ CURLcode IcebergFuzzer::sendQueryAndAccount(CURL *curl,
                                              size_t &execs,
                                              size_t crash_size_on_failure) {
   execs++;
-  // Queries name the seed metadata file; send them against the current mutation.
+  // Queries name the seed metadata file, by local path or by its URL in the
+  // bucket; the mutation sits next to it, so swap the file name only.
+  const std::string seed_name =
+      "/" + std::filesystem::path(seed_metadata_path).filename().string();
+  const std::string mutation_name =
+      "/" + std::filesystem::path(mutated_metadata_path).filename().string();
   std::string current = query;
-  for (size_t pos = current.find(seed_metadata_path); pos != std::string::npos;
-       pos = current.find(seed_metadata_path, pos + mutated_metadata_path.size())) {
-    current.replace(pos, seed_metadata_path.size(), mutated_metadata_path);
+  for (size_t pos = current.find(seed_name); pos != std::string::npos;
+       pos = current.find(seed_name, pos + mutation_name.size())) {
+    current.replace(pos, seed_name.size(), mutation_name);
   }
   std::cout << "\nQuery : " << current << std::endl;
   auto rc = send_query(curl, current, db_url, "");
@@ -456,7 +477,7 @@ int8_t IcebergFuzzer::fuzz_manifest_list_structured(
   std::fclose(new_manifest_file_ptr);
   std::remove(mutated_manifest_list_name.c_str());
   mutated_manifest_list_name = manifest_list_file(++manifest_list_generation);
-  new_manifest_file_ptr = std::fopen(mutated_manifest_list_name.c_str(), "wb");
+  new_manifest_file_ptr = create_mutation_file(mutated_manifest_list_name);
   if (!new_manifest_file_ptr) {
     perror("fopen");
     exit(1);
